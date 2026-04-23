@@ -1,0 +1,17 @@
+{
+  "name": "@bbt/config",
+  "version": "0.0.1",
+  "private": true,
+  "exports": {
+    "./tailwind": "./tailwind.config.ts",
+    "./eslint": "./.eslintrc.js",
+    "./typescript": "./tsconfig.base.json"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.4.0"
+  }
+}

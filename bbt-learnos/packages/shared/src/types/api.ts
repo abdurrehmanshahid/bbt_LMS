@@ -1,0 +1,40 @@
+export interface ApiErrorResponse {
+  code: string;
+  message: string;
+  field?: string;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  nextCursor: string | null;
+}
+
+export interface ApiSuccessResponse<T> {
+  data: T;
+}
+
+export enum ErrorCode {
+  // Auth
+  INVALID_CREDENTIALS = 'INVALID_CREDENTIALS',
+  ACCOUNT_LOCKED = 'ACCOUNT_LOCKED',
+  EMAIL_NOT_VERIFIED = 'EMAIL_NOT_VERIFIED',
+  TOKEN_EXPIRED = 'TOKEN_EXPIRED',
+  TOKEN_INVALID = 'TOKEN_INVALID',
+  REFRESH_TOKEN_REUSED = 'REFRESH_TOKEN_REUSED',
+  TIER_INSUFFICIENT = 'TIER_INSUFFICIENT',
+
+  // Assessment
+  SUBMISSION_TOO_FAST = 'SUBMISSION_TOO_FAST',
+  MODULE_NOT_COMPLETED = 'MODULE_NOT_COMPLETED',
+  RETRY_LOCKED = 'RETRY_LOCKED',
+  PREREQUISITE_NOT_MET = 'PREREQUISITE_NOT_MET',
+
+  // Payment
+  PAYMENT_FAILED = 'PAYMENT_FAILED',
+  INVALID_WEBHOOK_SIGNATURE = 'INVALID_WEBHOOK_SIGNATURE',
+  SUBSCRIPTION_REQUIRED = 'SUBSCRIPTION_REQUIRED',
+
+  // Content
+  INVALID_FILE_TYPE = 'INVALID_FILE_TYPE',
+}

@@ -1,0 +1,560 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  LEARNER
+  CREATOR
+  ADMIN
+  EMPLOYER
+  FRANCHISE_OWNER
+}
+
+enum AbsorptionStatus {
+  INELIGIBLE
+  ELIGIBLE
+  UNDER_REVIEW
+  ABSORBED
+  REFERRED
+}
+
+enum ContentType {
+  REEL
+  LECTURE
+  LIVE_RECORDING
+  RESOURCE
+}
+
+enum ContentStatus {
+  DRAFT
+  PENDING_MODERATION
+  APPROVED
+  REJECTED
+  FAILED
+}
+
+enum ModerationDecision {
+  PENDING
+  APPROVED
+  REJECTED
+  HELD
+}
+
+enum EnrollmentPlan {
+  FREE
+  MONTHLY
+  ANNUAL
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentGateway {
+  STRIPE
+  JAZZCASH
+  EASYPAISA
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum CohortStatus {
+  ACTIVE
+  COMPLETED
+  DISBANDED
+}
+
+enum PsdaStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+// ─── User & Profiles ─────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  name          String
+  avatarUrl     String?
+  role          UserRole  @default(LEARNER)
+  isActive      Boolean   @default(true)
+  emailVerified Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  learnerProfile        LearnerProfile?
+  creatorProfile        CreatorProfile?
+  enrollments           Enrollment[]
+  assessments           Assessment[]
+  skillBadges           SkillBadge[]
+  payments              Payment[]
+  notifications         Notification[]
+  cohortMemberships     CohortMember[]
+  content               Content[]              @relation("ContentCreator")
+  moderationActions     ModerationRecord[]     @relation("ModerationAdmin")
+  franchise             Franchise?             @relation("FranchiseOwner")
+  opportunities         Opportunity[]
+  employerContactReqs   ContactRequest[]       @relation("EmployerContactRequests")
+  learnerContactReqs    ContactRequest[]       @relation("LearnerContactRequests")
+  staffAugRequests      StaffAugRequest[]
+  hireTeamRequests      HireTeamRequest[]
+
+  @@index([email])
+  @@index([role])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model LearnerProfile {
+  id               String           @id @default(uuid())
+  userId           String           @unique
+  currentTrackId   String?
+  currentModuleId  String?
+  streakDays       Int              @default(0)
+  lastActiveAt     DateTime         @default(now())
+  absorptionScore  Float            @default(0)
+  absorptionStatus AbsorptionStatus @default(INELIGIBLE)
+
+  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentTrack Track? @relation("CurrentTrack", fields: [currentTrackId], references: [id])
+
+  @@index([userId])
+  @@index([currentTrackId])
+  @@index([absorptionStatus])
+  @@map("learner_profiles")
+}
+
+model CreatorProfile {
+  id                  String  @id @default(uuid())
+  userId              String  @unique
+  tier                Int     @default(1)
+  displayName         String  @unique
+  bio                 String  @default("")
+  qualityScore        Float   @default(0)
+  moderationFlags     Int     @default(0)
+  revenueSharePercent Float   @default(0)
+  isVerified          Boolean @default(false)
+  verificationDetails Json?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tier])
+  @@map("creator_profiles")
+}
+
+// ─── Tracks, Modules, Concepts ───────────────────────────────────────────────
+
+model Track {
+  id                String  @id @default(uuid())
+  slug              String  @unique
+  title             String
+  description       String
+  icon              String
+  trackNumber       Int     @unique
+  isActive          Boolean @default(true)
+  enrollmentCount   Int     @default(0)
+  avgCompletionRate Float   @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  modules     Module[]
+  enrollments Enrollment[]
+  content     Content[]
+  cohorts     Cohort[]
+  currentLearners LearnerProfile[] @relation("CurrentTrack")
+
+  @@index([slug])
+  @@index([isActive])
+  @@map("tracks")
+}
+
+model Module {
+  id               String  @id @default(uuid())
+  trackId          String
+  order            Int
+  title            String
+  description      String
+  estimatedMinutes Int
+  passingScore     Float   @default(60)
+  isActive         Boolean @default(true)
+  questions        Json?
+
+  track       Track        @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  concepts    Concept[]
+  content     Content[]
+  assessments Assessment[]
+
+  @@unique([trackId, order])
+  @@index([trackId])
+  @@map("modules")
+}
+
+model Concept {
+  id          String @id @default(uuid())
+  moduleId    String
+  title       String
+  description String
+  order       Int
+
+  module       Module               @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  prerequisites ConceptPrerequisite[] @relation("ConceptPrerequisites")
+  dependents    ConceptPrerequisite[] @relation("ConceptDependents")
+  content       Content[]
+  skillBadges   SkillBadge[]
+
+  @@unique([moduleId, order])
+  @@index([moduleId])
+  @@map("concepts")
+}
+
+model ConceptPrerequisite {
+  conceptId      String
+  prerequisiteId String
+
+  concept      Concept @relation("ConceptPrerequisites", fields: [conceptId], references: [id], onDelete: Cascade)
+  prerequisite Concept @relation("ConceptDependents", fields: [prerequisiteId], references: [id], onDelete: Cascade)
+
+  @@id([conceptId, prerequisiteId])
+  @@index([conceptId])
+  @@index([prerequisiteId])
+  @@map("concept_prerequisites")
+}
+
+// ─── Content ─────────────────────────────────────────────────────────────────
+
+model Content {
+  id            String        @id @default(uuid())
+  creatorId     String
+  trackId       String
+  moduleId      String?
+  conceptId     String?
+  type          ContentType
+  title         String
+  description   String
+  muxAssetId    String?
+  muxPlaybackId String?
+  duration      Int?
+  transcript    String?
+  thumbnailUrl  String?
+  status        ContentStatus @default(DRAFT)
+  tags          String[]
+  viewCount     Int           @default(0)
+  saveCount     Int           @default(0)
+  shareCount    Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  creator            User               @relation("ContentCreator", fields: [creatorId], references: [id])
+  track              Track              @relation(fields: [trackId], references: [id])
+  module             Module?            @relation(fields: [moduleId], references: [id])
+  concept            Concept?           @relation(fields: [conceptId], references: [id])
+  moderationRecords  ModerationRecord[]
+
+  @@index([creatorId])
+  @@index([trackId, status])
+  @@index([moduleId])
+  @@index([conceptId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("content")
+}
+
+model ModerationRecord {
+  id           String             @id @default(uuid())
+  contentId    String
+  adminId      String?
+  decision     ModerationDecision @default(PENDING)
+  feedbackJson Json?
+  aiFlags      Json?
+  aiConfidence Float?
+  createdAt    DateTime           @default(now())
+
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  admin   User?   @relation("ModerationAdmin", fields: [adminId], references: [id])
+
+  @@index([contentId])
+  @@index([adminId])
+  @@index([decision])
+  @@map("moderation_records")
+}
+
+// ─── Enrollment ──────────────────────────────────────────────────────────────
+
+model Enrollment {
+  id                   String           @id @default(uuid())
+  learnerId            String
+  trackId              String
+  plan                 EnrollmentPlan   @default(FREE)
+  status               EnrollmentStatus @default(ACTIVE)
+  stripeSubscriptionId String?
+  startDate            DateTime         @default(now())
+  endDate              DateTime?
+  createdAt            DateTime         @default(now())
+
+  learner User  @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+  track   Track @relation(fields: [trackId], references: [id])
+
+  @@unique([learnerId, trackId])
+  @@index([learnerId, status])
+  @@index([trackId])
+  @@index([stripeSubscriptionId])
+  @@map("enrollments")
+}
+
+// ─── Assessment & Badges ─────────────────────────────────────────────────────
+
+model Assessment {
+  id                 String   @id @default(uuid())
+  learnerId          String
+  moduleId           String
+  attemptNumber      Int      @default(1)
+  score              Float
+  passed             Boolean
+  submittedAt        DateTime @default(now())
+  answers            Json
+  flaggedForReview   Boolean  @default(false)
+  reviewReason       String?
+  sessionStartedAt   DateTime
+  submissionDuration Int
+
+  learner User   @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+  module  Module @relation(fields: [moduleId], references: [id])
+
+  @@index([learnerId, moduleId])
+  @@index([moduleId])
+  @@index([flaggedForReview])
+  @@map("assessments")
+}
+
+model SkillBadge {
+  id              String   @id @default(uuid())
+  learnerId       String
+  conceptId       String
+  score           Float
+  issuedAt        DateTime @default(now())
+  badgeJson       Json
+  verificationUrl String
+  isRevoked       Boolean  @default(false)
+
+  learner User    @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+  concept Concept @relation(fields: [conceptId], references: [id])
+
+  @@unique([learnerId, conceptId])
+  @@index([learnerId])
+  @@index([conceptId])
+  @@index([isRevoked])
+  @@map("skill_badges")
+}
+
+// ─── Cohorts ─────────────────────────────────────────────────────────────────
+
+model Cohort {
+  id               String       @id @default(uuid())
+  trackId          String
+  name             String
+  startDate        DateTime
+  maxSize          Int          @default(20)
+  status           CohortStatus @default(ACTIVE)
+  moduleStartIndex Int          @default(0)
+  createdAt        DateTime     @default(now())
+
+  track   Track          @relation(fields: [trackId], references: [id])
+  members CohortMember[]
+
+  @@index([trackId, status])
+  @@map("cohorts")
+}
+
+model CohortMember {
+  cohortId    String
+  learnerId   String
+  joinedAt    DateTime @default(now())
+  isVisible   Boolean  @default(true)
+
+  cohort  Cohort @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  learner User   @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+
+  @@id([cohortId, learnerId])
+  @@index([cohortId])
+  @@index([learnerId])
+  @@map("cohort_members")
+}
+
+// ─── Payments ────────────────────────────────────────────────────────────────
+
+model Payment {
+  id                   String        @id @default(uuid())
+  userId               String
+  amount               Float
+  currency             String        @default("PKR")
+  gateway              PaymentGateway
+  gatewayTransactionId String
+  status               PaymentStatus @default(PENDING)
+  metadata             Json
+  createdAt            DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([gateway, status])
+  @@index([createdAt])
+  @@map("payments")
+}
+
+// ─── Franchise ───────────────────────────────────────────────────────────────
+
+model Franchise {
+  id                 String     @id @default(uuid())
+  ownerId            String     @unique
+  name               String
+  city               String
+  address            String
+  psdaStatus         PsdaStatus @default(PENDING)
+  navttcStatus       String     @default("PENDING")
+  complianceCheckedAt DateTime?
+  revenueSharePercent Float     @default(15)
+  setupFeeAmount     Float
+  setupFeePaid       Boolean    @default(false)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  owner User @relation("FranchiseOwner", fields: [ownerId], references: [id])
+
+  @@index([ownerId])
+  @@index([psdaStatus])
+  @@map("franchises")
+}
+
+// ─── Notifications ───────────────────────────────────────────────────────────
+
+model Notification {
+  id      String   @id @default(uuid())
+  userId  String
+  type    String
+  title   String
+  body    String
+  data    Json?
+  isRead  Boolean  @default(false)
+  sentAt  DateTime @default(now())
+  readAt  DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([sentAt])
+  @@map("notifications")
+}
+
+// ─── Search Gaps ─────────────────────────────────────────────────────────────
+
+model ContentGap {
+  id             String   @id @default(uuid())
+  query          String
+  type           String   // zero_results | low_engagement
+  count          Int      @default(1)
+  suggestedTrack String?
+  firstSeenAt    DateTime @default(now())
+  lastSeenAt     DateTime @default(now())
+
+  @@unique([query, type])
+  @@index([count])
+  @@index([lastSeenAt])
+  @@map("content_gaps")
+}
+
+// ─── Employer / Talent ────────────────────────────────────────────────────────
+
+model Opportunity {
+  id          String   @id @default(uuid())
+  employerId  String
+  title       String
+  description String
+  track       String
+  location    String
+  isRemote    Boolean  @default(false)
+  type        String   // full-time | contract | internship
+  salaryMin   Float?
+  salaryMax   Float?
+  currency    String   @default("USD")
+  closingDate DateTime?
+  isFeatured  Boolean  @default(false)
+  isApproved  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  employer User @relation(fields: [employerId], references: [id], onDelete: Cascade)
+
+  @@index([track, isApproved])
+  @@index([closingDate])
+  @@map("opportunities")
+}
+
+model ContactRequest {
+  id          String   @id @default(uuid())
+  employerId  String
+  learnerId   String
+  message     String?
+  status      String   @default("PENDING")  // PENDING | ACCEPTED | DECLINED
+  createdAt   DateTime @default(now())
+  respondedAt DateTime?
+
+  employer User @relation("EmployerContactRequests", fields: [employerId], references: [id], onDelete: Cascade)
+  learner  User @relation("LearnerContactRequests", fields: [learnerId], references: [id], onDelete: Cascade)
+
+  @@unique([employerId, learnerId])
+  @@index([learnerId, status])
+  @@map("contact_requests")
+}
+
+model StaffAugRequest {
+  id           String   @id @default(uuid())
+  employerId   String
+  skills       String[]
+  duration     String   // 1_week | 1_month | 3_months | ongoing
+  startDate    DateTime
+  maxHourlyBudget Float
+  currency     String   @default("USD")
+  status       String   @default("SUBMITTED") // SUBMITTED | MATCHING | PROFILES_SENT | AGREED | ACTIVE | COMPLETED
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  employer User @relation(fields: [employerId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("staff_aug_requests")
+}
+
+model HireTeamRequest {
+  id         String   @id @default(uuid())
+  employerId String
+  roles      Json     // Array<{ role: string; skills: string[]; seniority: string }>
+  status     String   @default("SUBMITTED")
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  employer User @relation(fields: [employerId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@map("hire_team_requests")
+}

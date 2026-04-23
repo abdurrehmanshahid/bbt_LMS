@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..400&display=swap');
+
+@layer base {
+  :root {
+    --background: #ffffff;
+    --foreground: #0d0d2e;
+  }
+
+  .dark {
+    --background: #0d0d2e;
+    --foreground: #ffffff;
+  }
+
+  * {
+    @apply border-navy-100;
+  }
+
+  body {
+    @apply bg-white dark:bg-navy-950 text-navy-900 dark:text-white font-body antialiased;
+  }
+
+  h1, h2, h3, h4, h5 {
+    @apply font-display tracking-wide;
+  }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@layer utilities {
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}

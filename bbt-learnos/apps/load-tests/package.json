@@ -1,0 +1,10 @@
+{
+  "name": "@bbt/load-tests",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "test:feed": "k6 run feed-load.js",
+    "test:auth": "k6 run auth-load.js",
+    "test:all": "k6 run all-load.js"
+  }
+}
