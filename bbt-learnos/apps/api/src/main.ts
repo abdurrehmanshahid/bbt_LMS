@@ -1,7 +1,10 @@
+import './instrument';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import cookieParser = require('cookie-parser');
 import { AppModule } from './app.module';
+import { SentryExceptionFilter } from './common/filters/sentry-exception.filter';
+import { DatadogInterceptor } from './common/interceptors/datadog.interceptor';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { rawBody: true });
@@ -9,6 +12,9 @@ async function bootstrap(): Promise<void> {
   app.use(cookieParser());
 
   app.setGlobalPrefix('api');
+
+  app.useGlobalFilters(new SentryExceptionFilter());
+  app.useGlobalInterceptors(new DatadogInterceptor());
 
   app.useGlobalPipes(
     new ValidationPipe({

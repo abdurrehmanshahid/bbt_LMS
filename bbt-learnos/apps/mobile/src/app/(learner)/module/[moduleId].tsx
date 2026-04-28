@@ -13,6 +13,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
 import { useAuthStore } from '@/lib/store';
 import { learnerApi } from '@/lib/learner';
+import { VideoThumbnail } from '@/components/VideoThumbnail';
 
 type Tab = 'overview' | 'assessment';
 
@@ -78,7 +79,10 @@ export default function ModuleScreen(): React.JSX.Element {
         />
       ) : (
         <View style={[styles.videoPlaceholder, { height: VIDEO_H }]}>
-          <Text style={styles.placeholderText}>Video not available</Text>
+          <VideoThumbnail
+            title={data.title}
+            track={data.trackTitle}
+          />
         </View>
       )}
 
@@ -164,8 +168,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, backgroundColor: '#0d0d2e', alignItems: 'center', justifyContent: 'center' },
   errorText: { color: '#f87171', fontSize: 14 },
   video: { width: '100%', backgroundColor: '#000' },
-  videoPlaceholder: { width: '100%', backgroundColor: '#111128', alignItems: 'center', justifyContent: 'center' },
-  placeholderText: { color: '#5555aa', fontSize: 13 },
+  videoPlaceholder: { width: '100%', backgroundColor: '#111128' },
   backBtn: { position: 'absolute', top: 48, left: 16, backgroundColor: '#0d0d2e99', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
   backArrow: { fontSize: 20, color: '#fff' },
   scroll: { flex: 1, paddingHorizontal: 20 },

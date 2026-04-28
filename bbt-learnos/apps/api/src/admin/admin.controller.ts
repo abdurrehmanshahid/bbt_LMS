@@ -121,4 +121,16 @@ export class AdminController {
   getFranchises() {
     return this.adminService.getFranchises();
   }
+
+  // ── Analytics ───────────────────────────────────────────────────────────────
+
+  @Get('analytics/content')
+  getContentAnalytics(@Query('days') days?: string) {
+    return this.adminService.getContentAnalytics(Math.min(90, Number(days ?? 7)));
+  }
+
+  @Get('analytics/engagement')
+  getEngagementAnalytics(@Query('days') days?: string) {
+    return this.adminService.getEngagementAnalytics(Math.min(90, Number(days ?? 30)));
+  }
 }

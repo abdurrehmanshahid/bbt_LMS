@@ -7,8 +7,13 @@ import {
 } from '@prisma/client';
 import Mux from '@mux/mux-node';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { MlService } from '../ml/ml.service';
+import { ClickHouseService } from '../analytics/clickhouse.service';
+import type { ModerationJobData } from '../moderation/moderation.processor';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 
 // Feed bucket weights
@@ -37,6 +42,9 @@ export class ContentService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly config: ConfigService,
+    private readonly ml: MlService,
+    private readonly clickhouse: ClickHouseService,
+    @InjectQueue('moderation') private readonly moderationQueue: Queue<ModerationJobData>,
   ) {
     this.mux = new Mux({
       tokenId: this.config.get<string>('MUX_TOKEN_ID', ''),
@@ -92,7 +100,6 @@ export class ContentService {
   // ─── Learner feed ────────────────────────────────────────────────────────────
 
   async getFeed(userId: string, cursor?: string): Promise<{ items: unknown[]; nextCursor: string | null }> {
-    // Determine learner's current track/module from profile
     const profile = await this.prisma.learnerProfile.findUnique({
       where: { userId },
       select: { currentTrackId: true, currentModuleId: true },
@@ -102,17 +109,33 @@ export class ContentService {
       where: { learnerId: userId, status: EnrollmentStatus.ACTIVE },
       select: { trackId: true, plan: true },
     });
-
     const enrolledTrackIds = enrollments.map((e) => e.trackId);
 
-    // Check Redis for recent event count (cold start detection)
+    // Try ML service first (non-blocking — 3s timeout, falls back on any error)
+    if (profile?.currentTrackId && !cursor) {
+      const mlFeed = await this.ml.getFeed(
+        userId,
+        profile.currentTrackId,
+        profile.currentModuleId ?? undefined,
+        [],
+        FEED_PAGE_SIZE,
+      );
+      if (mlFeed && mlFeed.items.length > 0) {
+        return {
+          items: mlFeed.items,
+          nextCursor: mlFeed.items.length >= FEED_PAGE_SIZE
+            ? (mlFeed.items[mlFeed.items.length - 1]?.id ?? null)
+            : null,
+        };
+      }
+    }
+
+    // Fallback: internal Prisma-based feed
     const eventCountKey = `feed:events:${userId}`;
     const eventCount = parseInt((await this.redis.get(eventCountKey)) ?? '0', 10);
-
     const isColdStart = eventCount < COLD_START_THRESHOLD;
 
     let items: unknown[];
-
     if (isColdStart || !profile?.currentTrackId) {
       items = await this.getColdStartFeed(profile?.currentTrackId, profile?.currentModuleId, cursor);
     } else {
@@ -309,6 +332,20 @@ export class ContentService {
           status: ContentStatus.PENDING_MODERATION,
         },
       });
+
+      // Enqueue AI moderation job
+      const content = await this.prisma.content.findFirst({
+        where: { muxAssetId: assetId },
+        select: { id: true, creatorId: true, transcript: true },
+      });
+      if (content) {
+        await this.moderationQueue.add('screen', {
+          contentId: content.id,
+          creatorId: content.creatorId,
+          muxAssetId: assetId,
+          ...(content.transcript ? { transcript: content.transcript } : {}),
+        });
+      }
     } else if (event.type === 'video.asset.errored') {
       await this.prisma.content.updateMany({
         where: { muxAssetId: assetId },
@@ -328,11 +365,8 @@ export class ContentService {
     pipeline.expire(eventKey, 86400 * 30);
 
     if (dto.event === 'complete') {
-      // Mark content completion in Redis
       const completionKey = `progress:${userId}:content:${dto.contentId}`;
       pipeline.set(completionKey, '1', 'EX', 86400 * 365);
-
-      // Increment global view count
       pipeline.hincrby('stats:content:views', dto.contentId, 1);
     } else if (dto.event === 'share') {
       pipeline.hincrby('stats:content:shares', dto.contentId, 1);
@@ -346,6 +380,25 @@ export class ContentService {
     if (dto.event === 'complete' || dto.event === 'share' || dto.event === 'save') {
       void this.flushStatToDB(dto.contentId, dto.event);
     }
+
+    // Stream event to ClickHouse for analytics (fire-and-forget, non-blocking)
+    void this.writeClickHouseEvent(userId, dto);
+  }
+
+  private async writeClickHouseEvent(userId: string, dto: AnalyticsEventDto): Promise<void> {
+    const content = await this.prisma.content.findUnique({
+      where: { id: dto.contentId },
+      select: { trackId: true, moduleId: true },
+    });
+    this.clickhouse.insertContentEvent({
+      user_id: userId,
+      content_id: dto.contentId,
+      track_id: content?.trackId ?? '',
+      module_id: content?.moduleId ?? '',
+      event: dto.event,
+      position_seconds: dto.positionSeconds ?? 0,
+      duration_seconds: dto.durationSeconds ?? 0,
+    });
   }
 
   private async flushStatToDB(

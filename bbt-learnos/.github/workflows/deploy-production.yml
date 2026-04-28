@@ -1,0 +1,208 @@
+name: Deploy → Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to promote (e.g. sha-abc1234)'
+        required: true
+        type: string
+      confirm:
+        description: 'Type DEPLOY to confirm'
+        required: true
+        type: string
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-south-1.amazonaws.com
+
+jobs:
+  validate:
+    name: Validate inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm production deploy
+        if: ${{ github.event.inputs.confirm != 'DEPLOY' }}
+        run: |
+          echo "::error::You must type DEPLOY in the confirm field"
+          exit 1
+
+  deploy-production:
+    name: Deploy to Production (ECS)
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Promote API image to production tag
+        run: |
+          MANIFEST=$(aws ecr batch-get-image \
+            --repository-name bbt-api \
+            --image-ids imageTag=${{ github.event.inputs.image_tag }} \
+            --query 'images[0].imageManifest' \
+            --output text)
+          aws ecr put-image \
+            --repository-name bbt-api \
+            --image-tag production \
+            --image-manifest "$MANIFEST"
+
+      - name: Promote Web image to production tag
+        run: |
+          MANIFEST=$(aws ecr batch-get-image \
+            --repository-name bbt-web \
+            --image-ids imageTag=${{ github.event.inputs.image_tag }} \
+            --query 'images[0].imageManifest' \
+            --output text)
+          aws ecr put-image \
+            --repository-name bbt-web \
+            --image-tag production \
+            --image-manifest "$MANIFEST"
+
+      - name: Run Prisma migrations
+        run: |
+          aws ecs run-task \
+            --cluster bbt-production \
+            --task-definition bbt-api-migrate \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ secrets.PROD_SUBNET_IDS }}],securityGroups=[${{ secrets.PROD_SG_ID }}],assignPublicIp=DISABLED}" \
+            --overrides '{"containerOverrides":[{"name":"api","command":["npx","prisma","migrate","deploy"]}]}' \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Deploy API to production
+        run: |
+          aws ecs update-service \
+            --cluster bbt-production \
+            --service bbt-api \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Deploy Web to production
+        run: |
+          aws ecs update-service \
+            --cluster bbt-production \
+            --service bbt-web \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Wait for API stability
+        id: wait-api
+        run: |
+          aws ecs wait services-stable \
+            --cluster bbt-production \
+            --services bbt-api \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Wait for Web stability
+        id: wait-web
+        run: |
+          aws ecs wait services-stable \
+            --cluster bbt-production \
+            --services bbt-web \
+            --region ${{ env.AWS_REGION }}
+
+  health-check:
+    name: Post-deploy Health Check
+    needs: deploy-production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: API health check
+        run: |
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.PROD_API_URL }}/health)
+            if [ "$STATUS" = "200" ]; then
+              echo "API healthy"
+              exit 0
+            fi
+            echo "Attempt $i: status=$STATUS, retrying in 15s..."
+            sleep 15
+          done
+          echo "::error::API health check failed after 5 attempts"
+          exit 1
+
+      - name: Web health check
+        run: |
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.PROD_WEB_URL }})
+            if [ "$STATUS" = "200" ]; then
+              echo "Web healthy"
+              exit 0
+            fi
+            echo "Attempt $i: status=$STATUS, retrying in 15s..."
+            sleep 15
+          done
+          echo "::error::Web health check failed after 5 attempts"
+          exit 1
+
+  rollback-on-failure:
+    name: Rollback if unhealthy
+    needs: health-check
+    runs-on: ubuntu-latest
+    if: failure()
+    environment: production
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Rollback ECS services to previous task definition
+        run: |
+          PREV_API=$(aws ecs describe-services \
+            --cluster bbt-production \
+            --services bbt-api \
+            --query 'services[0].deployments[1].taskDefinition' \
+            --output text)
+          aws ecs update-service \
+            --cluster bbt-production \
+            --service bbt-api \
+            --task-definition "$PREV_API"
+
+          PREV_WEB=$(aws ecs describe-services \
+            --cluster bbt-production \
+            --services bbt-web \
+            --query 'services[0].deployments[1].taskDefinition' \
+            --output text)
+          aws ecs update-service \
+            --cluster bbt-production \
+            --service bbt-web \
+            --task-definition "$PREV_WEB"
+
+      - name: Notify Slack — rollback triggered
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "🔴 *Production rollback triggered* — health check failed after deploy of `${{ github.event.inputs.image_tag }}` by ${{ github.actor }}.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+  notify-success:
+    name: Notify Slack — success
+    needs: health-check
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+      - name: Notify Slack
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "🚀 *Production deploy succeeded* — `${{ github.event.inputs.image_tag }}` is live. Deployed by ${{ github.actor }}.\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

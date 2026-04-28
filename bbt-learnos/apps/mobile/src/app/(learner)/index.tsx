@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/lib/store';
 import { learnerApi, type FeedItem } from '@/lib/learner';
+import { VideoThumbnail } from '@/components/VideoThumbnail';
 
 function FeedCard({ item }: { item: FeedItem }): React.JSX.Element {
   const router = useRouter();
@@ -27,7 +28,15 @@ function FeedCard({ item }: { item: FeedItem }): React.JSX.Element {
       {item.thumbnailUrl ? (
         <Image source={{ uri: item.thumbnailUrl }} style={styles.thumb} resizeMode="cover" />
       ) : (
-        <View style={[styles.thumb, styles.thumbPlaceholder]} />
+        <View style={[styles.thumb, styles.thumbPlaceholder]}>
+          <VideoThumbnail
+            title={item.title}
+            track={item.track}
+            creatorName={item.creatorName}
+            durationLabel={`${mins} min`}
+            compact
+          />
+        </View>
       )}
       {item.watched && (
         <View style={styles.watchedBadge}>
@@ -120,7 +129,7 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: 16, paddingBottom: 24 },
   card: { backgroundColor: '#1a1a3e', borderRadius: 16, marginBottom: 14, overflow: 'hidden' },
   thumb: { width: '100%', height: 160 },
-  thumbPlaceholder: { backgroundColor: '#2a2a5e' },
+  thumbPlaceholder: { backgroundColor: '#12153a' },
   watchedBadge: {
     position: 'absolute',
     top: 10,

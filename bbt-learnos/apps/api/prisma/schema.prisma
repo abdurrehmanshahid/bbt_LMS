@@ -79,6 +79,13 @@ enum CohortStatus {
   DISBANDED
 }
 
+enum LiveSessionStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+  CANCELLED
+}
+
 enum PsdaStatus {
   PENDING
   ACTIVE
@@ -116,6 +123,14 @@ model User {
   learnerContactReqs    ContactRequest[]       @relation("LearnerContactRequests")
   staffAugRequests      StaffAugRequest[]
   hireTeamRequests      HireTeamRequest[]
+  ltiLaunches           LtiLaunch[]            @relation("LtiLaunches")
+  liveSessions          LiveSession[]          @relation("SessionCreator")
+  mentorshipSlots       MentorshipSlot[]       @relation("SlotCreator")
+  mentorshipBookings    MentorshipBooking[]    @relation("MentorshipLearner")
+  following             Follow[]               @relation("Followers")
+  followers             Follow[]               @relation("Following")
+  comments              ContentComment[]
+  reactions             ContentReaction[]
 
   @@index([email])
   @@index([role])
@@ -132,13 +147,16 @@ model LearnerProfile {
   lastActiveAt     DateTime         @default(now())
   absorptionScore  Float            @default(0)
   absorptionStatus AbsorptionStatus @default(INELIGIBLE)
+  franchiseId      String?
 
-  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  currentTrack Track? @relation("CurrentTrack", fields: [currentTrackId], references: [id])
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentTrack Track?     @relation("CurrentTrack", fields: [currentTrackId], references: [id])
+  franchise    Franchise? @relation("FranchiseLearners", fields: [franchiseId], references: [id])
 
   @@index([userId])
   @@index([currentTrackId])
   @@index([absorptionStatus])
+  @@index([franchiseId])
   @@map("learner_profiles")
 }
 
@@ -151,13 +169,15 @@ model CreatorProfile {
   qualityScore        Float   @default(0)
   moderationFlags     Int     @default(0)
   revenueSharePercent Float   @default(0)
-  isVerified          Boolean @default(false)
-  verificationDetails Json?
+  isVerified               Boolean   @default(false)
+  verificationDetails      Json?
+  tierUpgradeRequestedAt   DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([tier])
+  @@index([tierUpgradeRequestedAt])
   @@map("creator_profiles")
 }
 
@@ -181,6 +201,7 @@ model Track {
   content     Content[]
   cohorts     Cohort[]
   currentLearners LearnerProfile[] @relation("CurrentTrack")
+  liveSessions LiveSession[]
 
   @@index([slug])
   @@index([isActive])
@@ -268,6 +289,8 @@ model Content {
   module             Module?            @relation(fields: [moduleId], references: [id])
   concept            Concept?           @relation(fields: [conceptId], references: [id])
   moderationRecords  ModerationRecord[]
+  comments           ContentComment[]
+  reactions          ContentReaction[]
 
   @@index([creatorId])
   @@index([trackId, status])
@@ -423,21 +446,23 @@ model Payment {
 // ─── Franchise ───────────────────────────────────────────────────────────────
 
 model Franchise {
-  id                 String     @id @default(uuid())
-  ownerId            String     @unique
-  name               String
-  city               String
-  address            String
-  psdaStatus         PsdaStatus @default(PENDING)
-  navttcStatus       String     @default("PENDING")
+  id                  String     @id @default(uuid())
+  ownerId             String     @unique
+  name                String
+  city                String
+  address             String
+  psdaStatus          PsdaStatus @default(PENDING)
+  navttcStatus        String     @default("PENDING")
   complianceCheckedAt DateTime?
-  revenueSharePercent Float     @default(15)
-  setupFeeAmount     Float
-  setupFeePaid       Boolean    @default(false)
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
+  complianceChecklist Json?
+  revenueSharePercent Float      @default(15)
+  setupFeeAmount      Float
+  setupFeePaid        Boolean    @default(false)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
 
-  owner User @relation("FranchiseOwner", fields: [ownerId], references: [id])
+  owner    User             @relation("FranchiseOwner", fields: [ownerId], references: [id])
+  learners LearnerProfile[] @relation("FranchiseLearners")
 
   @@index([ownerId])
   @@index([psdaStatus])
@@ -557,4 +582,166 @@ model HireTeamRequest {
 
   @@index([status])
   @@map("hire_team_requests")
+}
+
+// ─── LTI 1.3 ─────────────────────────────────────────────────────────────────
+
+model LtiPlatform {
+  id             String   @id @default(uuid())
+  name           String
+  clientId       String   @unique
+  authLoginUrl   String
+  authTokenUrl   String
+  keySetUrl      String
+  accessTokenUrl String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  launches LtiLaunch[]
+
+  @@index([clientId])
+  @@map("lti_platforms")
+}
+
+model LtiLaunch {
+  id             String   @id @default(uuid())
+  platformId     String
+  learnerId      String?
+  contextId      String
+  resourceLinkId String
+  lineItemUrl    String?
+  nrpsUrl        String?
+  deepLinkingData Json?
+  launchedAt     DateTime @default(now())
+
+  platform LtiPlatform @relation(fields: [platformId], references: [id], onDelete: Cascade)
+  learner  User?       @relation("LtiLaunches", fields: [learnerId], references: [id])
+
+  @@index([platformId])
+  @@index([learnerId])
+  @@map("lti_launches")
+}
+
+model LtiNonce {
+  id        String   @id @default(uuid())
+  nonce     String   @unique
+  expiresAt DateTime
+
+  @@index([nonce])
+  @@index([expiresAt])
+  @@map("lti_nonces")
+}
+
+// ─── Live Sessions (Daily.co) ────────────────────────────────────────────────
+
+model LiveSession {
+  id               String            @id @default(uuid())
+  creatorId        String
+  trackId          String
+  title            String
+  description      String?
+  scheduledAt      DateTime
+  status           LiveSessionStatus @default(SCHEDULED)
+  dailyRoomName    String?
+  dailyRoomUrl     String?
+  recordingUrl     String?
+  maxParticipants  Int               @default(100)
+  startedAt        DateTime?
+  endedAt          DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  creator User  @relation("SessionCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  track   Track @relation(fields: [trackId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId])
+  @@index([trackId, status])
+  @@index([scheduledAt])
+  @@map("live_sessions")
+}
+
+// ─── Mentorship (Tier 2+ / Expert sessions) ──────────────────────────────────
+
+model MentorshipSlot {
+  id          String   @id @default(uuid())
+  creatorId   String
+  title       String   @default("Office Hours")
+  durationMin Int      @default(30)
+  startsAt    DateTime
+  isBooked    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  creator User               @relation("SlotCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  booking MentorshipBooking?
+
+  @@index([creatorId, isBooked])
+  @@index([startsAt])
+  @@map("mentorship_slots")
+}
+
+model MentorshipBooking {
+  id            String   @id @default(uuid())
+  slotId        String   @unique
+  learnerId     String
+  dailyRoomUrl  String?
+  dailyRoomName String?
+  status        String   @default("CONFIRMED")
+  createdAt     DateTime @default(now())
+
+  slot    MentorshipSlot @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  learner User           @relation("MentorshipLearner", fields: [learnerId], references: [id], onDelete: Cascade)
+
+  @@index([learnerId])
+  @@index([status])
+  @@map("mentorship_bookings")
+}
+
+// ─── Social Graph ─────────────────────────────────────────────────────────────
+
+model Follow {
+  followerId String
+  creatorId  String
+  createdAt  DateTime @default(now())
+
+  follower User @relation("Followers", fields: [followerId], references: [id], onDelete: Cascade)
+  creator  User @relation("Following",  fields: [creatorId],  references: [id], onDelete: Cascade)
+
+  @@id([followerId, creatorId])
+  @@index([creatorId])
+  @@map("follows")
+}
+
+model ContentComment {
+  id        String   @id @default(uuid())
+  contentId String
+  userId    String
+  parentId  String?
+  body      String
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  content Content          @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId],    references: [id], onDelete: Cascade)
+  parent  ContentComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies ContentComment[] @relation("CommentReplies")
+
+  @@index([contentId, createdAt])
+  @@index([userId])
+  @@map("content_comments")
+}
+
+model ContentReaction {
+  userId    String
+  contentId String
+  type      String   // LIKE | FIRE | MIND_BLOWN
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId],    references: [id], onDelete: Cascade)
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, contentId])
+  @@index([contentId])
+  @@map("content_reactions")
 }

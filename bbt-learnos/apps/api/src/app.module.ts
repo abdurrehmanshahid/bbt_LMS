@@ -19,6 +19,13 @@ import { NotificationModule } from './notification/notification.module';
 import { SearchModule } from './search/search.module';
 import { AdminModule } from './admin/admin.module';
 import { EmployerModule } from './employer/employer.module';
+import { LtiModule } from './lti/lti.module';
+import { ModerationModule } from './moderation/moderation.module';
+import { AnalyticsModule } from './analytics/analytics.module';
+import { LiveSessionModule } from './live-session/live-session.module';
+import { MentorshipModule } from './mentorship/mentorship.module';
+import { SocialModule } from './social/social.module';
+import { FranchiseModule } from './franchise/franchise.module';
 
 @Module({
   imports: [
@@ -48,6 +55,13 @@ import { EmployerModule } from './employer/employer.module';
     SearchModule,
     AdminModule,
     EmployerModule,
+    LtiModule,
+    ModerationModule,
+    AnalyticsModule,
+    LiveSessionModule,
+    MentorshipModule,
+    SocialModule,
+    FranchiseModule,
   ],
   providers: [
     {

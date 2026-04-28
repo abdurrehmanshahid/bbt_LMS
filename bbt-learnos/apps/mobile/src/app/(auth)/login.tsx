@@ -25,6 +25,9 @@ const ERROR_MAP: Record<string, string> = {
   EMAIL_NOT_VERIFIED: 'Please verify your email first.',
 };
 
+const DEV_BYPASS_EMAIL = 'openmeup';
+const DEV_BYPASS_PASSWORD = 'fosho';
+
 export default function LoginScreen(): React.JSX.Element {
   const router = useRouter();
   const setAuth = useAuthStore((s) => s.setAuth);
@@ -38,6 +41,24 @@ export default function LoginScreen(): React.JSX.Element {
     setLoading(true);
     setError('');
     try {
+      if (
+        email.trim().toLowerCase() === DEV_BYPASS_EMAIL
+        && password === DEV_BYPASS_PASSWORD
+      ) {
+        setAuth(
+          {
+            id: 'dev-learner-openmeup',
+            name: 'Dev Learner',
+            email: 'openmeup@local.dev',
+            role: 'LEARNER',
+            avatarUrl: null,
+          },
+          'dev-openmeup-token',
+        );
+        router.replace('/(learner)');
+        return;
+      }
+
       const data = await post<LoginResponse>('/auth/login', { email, password });
       setAuth(data.user, data.accessToken);
       if (data.user.role === 'CREATOR') {

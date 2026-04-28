@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "BBT LearnOS",
+    "slug": "bbt-learnos-mobile",
+    "scheme": "bbtlearnos",
+    "version": "0.0.1",
+    "orientation": "portrait",
+    "plugins": [
+      "expo-router",
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

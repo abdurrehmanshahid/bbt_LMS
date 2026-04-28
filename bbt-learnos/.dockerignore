@@ -1,0 +1,16 @@
+**/.git
+**/.github
+**/.next
+**/node_modules
+**/dist
+**/coverage
+**/*.log
+**/.env
+**/.env.*
+!**/.env.example
+**/playwright-report
+**/test-results
+apps/mobile
+apps/e2e
+apps/load-tests
+apps/ml

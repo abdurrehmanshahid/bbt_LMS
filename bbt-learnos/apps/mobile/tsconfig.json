@@ -4,11 +4,24 @@
     "strict": true,
     "target": "ES2022",
     "paths": {
-      "@/*": ["./src/*"],
-      "@bbt/shared": ["../../packages/shared/src/index.ts"],
-      "@bbt/ui": ["../../packages/ui/src/index.ts"]
+      "@/*": [
+        "./src/*"
+      ],
+      "@bbt/shared": [
+        "../../packages/shared/src/index.ts"
+      ],
+      "@bbt/ui": [
+        "../../packages/ui/src/index.ts"
+      ]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

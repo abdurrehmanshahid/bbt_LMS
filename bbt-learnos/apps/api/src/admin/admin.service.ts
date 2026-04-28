@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SearchService } from '../search/search.service';
+import { ClickHouseService } from '../analytics/clickhouse.service';
 import { ModerationDecision } from '@prisma/client';
 
 export interface ModeratePayload {
@@ -21,6 +22,7 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly searchService: SearchService,
+    private readonly clickhouse: ClickHouseService,
   ) {}
 
   // ── Moderation ──────────────────────────────────────────────────────────────
@@ -48,19 +50,30 @@ export class AdminService {
       orderBy: { createdAt: 'asc' },
     });
 
-    return records.map((c) => ({
+    // Sort: AI-flagged (high confidence) first, then by creator tier ascending (Tier 1 last = lower risk)
+    const sorted = [...records].sort((a, b) => {
+      const confA = a.moderationRecords[0]?.aiConfidence ?? 0;
+      const confB = b.moderationRecords[0]?.aiConfidence ?? 0;
+      if (confB !== confA) return confB - confA; // high confidence first
+      const tierA = a.creator.creatorProfile?.tier ?? 1;
+      const tierB = b.creator.creatorProfile?.tier ?? 1;
+      return tierB - tierA; // higher tier first (Tier 3 > Tier 1)
+    });
+
+    return sorted.map((c) => ({
       id: c.id,
       title: c.title,
       thumbnailUrl: c.thumbnailUrl,
       muxPlaybackId: c.muxPlaybackId,
-      transcript: null,
+      transcript: c.transcript ?? null,
       track: c.track.title,
       type: c.type,
       uploadedAt: c.createdAt.toISOString(),
       creatorName: c.creator.name,
       creatorTier: c.creator.creatorProfile?.tier ?? 1,
       creatorFlags: c.creator.creatorProfile?.moderationFlags ?? 0,
-      aiFlags: (c.moderationRecords[0]?.aiFlags as Array<{ category: string; confidence: number }> | null) ?? [],
+      aiConfidence: c.moderationRecords[0]?.aiConfidence ?? null,
+      aiFlags: (c.moderationRecords[0]?.aiFlags as Record<string, unknown> | null) ?? {},
       aiSuggestedFeedback: null,
     }));
   }
@@ -308,7 +321,7 @@ export class AdminService {
 
   async getTierReviewQueue() {
     const creators = await this.prisma.creatorProfile.findMany({
-      where: { tier: 1 },
+      where: { tierUpgradeRequestedAt: { not: null } },
       include: {
         user: {
           select: {
@@ -324,7 +337,8 @@ export class AdminService {
           },
         },
       },
-      take: 20,
+      orderBy: { tierUpgradeRequestedAt: 'asc' },
+      take: 40,
     });
 
     return creators.map((c) => ({
@@ -332,6 +346,7 @@ export class AdminService {
       name: c.user.name,
       avatarUrl: c.user.avatarUrl,
       currentTier: c.tier as 1 | 2,
+      requestedTier: (c.tier + 1) as 2 | 3,
       qualityScore: Math.round(c.qualityScore * 100),
       flags: c.moderationFlags,
       topContent: c.user.content.map((ct) => ({
@@ -341,7 +356,7 @@ export class AdminService {
         thumbnailUrl: ct.thumbnailUrl,
       })),
       credentials: c.verificationDetails ? JSON.stringify(c.verificationDetails) : null,
-      appliedAt: new Date().toISOString(),
+      appliedAt: c.tierUpgradeRequestedAt?.toISOString() ?? new Date().toISOString(),
     }));
   }
 
@@ -358,9 +373,16 @@ export class AdminService {
       const newTier = Math.min(3, profile.tier + 1) as 1 | 2 | 3;
       await this.prisma.creatorProfile.update({
         where: { userId: creatorId },
-        data: { tier: newTier },
+        data: { tier: newTier, tierUpgradeRequestedAt: null },
+      });
+    } else if (decision === 'REJECT') {
+      // Clear the request so they can re-apply
+      await this.prisma.creatorProfile.update({
+        where: { userId: creatorId },
+        data: { tierUpgradeRequestedAt: null },
       });
     }
+    // REQUEST_MORE leaves tierUpgradeRequestedAt set (still in queue)
 
     return { decision, creatorId, reason };
   }
@@ -405,5 +427,48 @@ export class AdminService {
       psda: f.psdaStatus,
       navttc: f.navttcStatus,
     }));
+  }
+
+  // ── Analytics (ClickHouse-backed) ───────────────────────────────────────────
+
+  async getContentAnalytics(days: number) {
+    const [chRows, contents] = await Promise.all([
+      this.clickhouse.queryContentPerformance(days),
+      this.prisma.content.findMany({
+        where: { status: 'APPROVED' },
+        select: { id: true, title: true, thumbnailUrl: true, trackId: true },
+      }),
+    ]);
+
+    const contentMap = Object.fromEntries(contents.map((c) => [c.id, c]));
+
+    return chRows.map((r) => ({
+      contentId: r.content_id,
+      title: contentMap[r.content_id]?.title ?? r.content_id,
+      thumbnailUrl: contentMap[r.content_id]?.thumbnailUrl ?? null,
+      trackId: contentMap[r.content_id]?.trackId ?? '',
+      completions: Number(r.completions),
+      plays: Number(r.plays),
+      saves: Number(r.saves),
+      shares: Number(r.shares),
+      avgWatchSeconds: Math.round(Number(r.avg_watch_seconds)),
+      completionRate: Number(r.completion_rate),
+    }));
+  }
+
+  async getEngagementAnalytics(days: number) {
+    const [dauRows, topSearches] = await Promise.all([
+      this.clickhouse.queryDailyActiveUsers(days),
+      this.clickhouse.queryTopSearches(days),
+    ]);
+
+    return {
+      dauByDay: dauRows.map((r) => ({ date: r.date, dau: Number(r.dau) })),
+      topSearches: topSearches.map((r) => ({
+        query: r.query,
+        count: Number(r.count),
+        zeroRate: Number(r.zero_rate),
+      })),
+    };
   }
 }

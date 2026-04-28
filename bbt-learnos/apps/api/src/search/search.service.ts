@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Client } from '@elastic/elasticsearch';
 import { PrismaService } from '../prisma/prisma.service';
+import { ClickHouseService } from '../analytics/clickhouse.service';
 
 const INDEX = 'bbt_content';
 
@@ -60,6 +61,7 @@ export class SearchService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly clickhouse: ClickHouseService,
   ) {
     const esUrl = this.config.get<string>('ELASTICSEARCH_URL', 'http://localhost:9200');
     this.es = new Client({ node: esUrl });
@@ -160,6 +162,7 @@ export class SearchService implements OnModuleInit {
       type?: string;
       after?: string;
       learnerTrackId?: string;
+      userId?: string;
     } = {},
   ): Promise<SearchResult> {
     const PAGE = 20;
@@ -275,6 +278,16 @@ export class SearchService implements OnModuleInit {
 
     const lastHit = hits[PAGE - 1];
     const nextCursor = hasMore && lastHit ? String(lastHit._id) : null;
+
+    // Log to ClickHouse for analytics (fire-and-forget)
+    this.clickhouse.insertSearchEvent({
+      user_id: opts.userId ?? '',
+      query: q,
+      track_id: opts.trackId ?? '',
+      result_count: total,
+      clicked_item_id: '',
+      zero_results: zeroResults ? 1 : 0,
+    });
 
     return { items, total, nextCursor, zeroResults };
   }
