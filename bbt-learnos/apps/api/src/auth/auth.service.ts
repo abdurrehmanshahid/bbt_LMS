@@ -1,3 +1,5 @@
+import { randomUUID, createPublicKey, type JsonWebKey } from 'crypto';
+
 import {
   Injectable,
   ConflictException,
@@ -7,20 +9,21 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { UserRole } from '@prisma/client';
+import { JwtService } from '@nestjs/jwt';
+import { UserRole, type User } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { randomUUID, createPublicKey, type JsonWebKey } from 'crypto';
-import { PrismaService } from '../prisma/prisma.service';
-import { RedisService } from '../redis/redis.service';
+
 import { EmailService } from '../email/email.service';
 import { KeysService } from '../keys/keys.service';
-import type { SignupDto } from './dto/signup.dto';
-import type { LoginDto } from './dto/login.dto';
-import type { ForgotPasswordDto } from './dto/forgot-password.dto';
-import type { ResetPasswordDto } from './dto/reset-password.dto';
+import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
+
 import type { AppleSignInDto } from './dto/apple-signin.dto';
+import type { ForgotPasswordDto } from './dto/forgot-password.dto';
+import type { LoginDto } from './dto/login.dto';
+import type { ResetPasswordDto } from './dto/reset-password.dto';
+import type { SignupDto } from './dto/signup.dto';
 import type { AuthTokens } from './interfaces/auth-tokens.interface';
 import type { JwtPayload } from './interfaces/jwt-payload.interface';
 
@@ -43,6 +46,7 @@ interface StoredRefresh {
 }
 
 type AppleJwk = JsonWebKey & { kid: string };
+type AuthUser = Pick<User, 'id' | 'email' | 'name' | 'role' | 'avatarUrl' | 'emailVerified'>;
 
 @Injectable()
 export class AuthService {
@@ -59,7 +63,13 @@ export class AuthService {
 
   async signup(dto: SignupDto): Promise<AuthTokens> {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (existing) throw new ConflictException({ code: 'EMAIL_ALREADY_EXISTS' });
+    if (existing) {
+      throw new ConflictException({
+        code: 'EMAIL_ALREADY_EXISTS',
+        message: 'An account with this email already exists. Sign in instead.',
+        field: 'email',
+      });
+    }
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_COST);
 
@@ -77,7 +87,7 @@ export class AuthService {
     await this.redis.set(`auth:verify:${verifyToken}`, user.id, 'EX', VERIFY_TTL);
     await this.email.sendVerificationEmail(user.email, verifyToken);
 
-    return this.issueTokens(user.id, user.role, 0);
+    return this.issueTokens(user, 0);
   }
 
   async login(dto: LoginDto): Promise<AuthTokens> {
@@ -111,7 +121,7 @@ export class AuthService {
     await this.redis.del(failKey);
 
     const tier = user.creatorProfile?.tier ?? 0;
-    return this.issueTokens(user.id, user.role, tier);
+    return this.issueTokens(user, tier);
   }
 
   async refresh(rawRefreshToken: string): Promise<AuthTokens> {
@@ -148,7 +158,7 @@ export class AuthService {
     await this.redis.srem(`auth:user_sessions:${user.id}`, payload.jti);
 
     const tier = user.creatorProfile?.tier ?? 0;
-    return this.issueTokens(user.id, user.role, tier, stored.sessionId);
+    return this.issueTokens(user, tier, stored.sessionId);
   }
 
   async logout(jwtPayload: JwtPayload, rawRefreshToken?: string): Promise<void> {
@@ -207,7 +217,7 @@ export class AuthService {
     });
 
     if (existing) {
-      return this.issueTokens(existing.id, existing.role, existing.creatorProfile?.tier ?? 0);
+      return this.issueTokens(existing, existing.creatorProfile?.tier ?? 0);
     }
 
     const created = await this.prisma.user.create({
@@ -223,7 +233,7 @@ export class AuthService {
       include: { creatorProfile: true },
     });
 
-    return this.issueTokens(created.id, created.role, created.creatorProfile?.tier ?? 0);
+    return this.issueTokens(created, created.creatorProfile?.tier ?? 0);
   }
 
   async handleAppleSignIn(dto: AppleSignInDto): Promise<AuthTokens> {
@@ -238,7 +248,7 @@ export class AuthService {
     });
 
     if (existing) {
-      return this.issueTokens(existing.id, existing.role, existing.creatorProfile?.tier ?? 0);
+      return this.issueTokens(existing, existing.creatorProfile?.tier ?? 0);
     }
 
     const created = await this.prisma.user.create({
@@ -253,7 +263,7 @@ export class AuthService {
       include: { creatorProfile: true },
     });
 
-    return this.issueTokens(created.id, created.role, created.creatorProfile?.tier ?? 0);
+    return this.issueTokens(created, created.creatorProfile?.tier ?? 0);
   }
 
   async verifyEmail(token: string): Promise<void> {
@@ -267,8 +277,7 @@ export class AuthService {
   // ─── Private helpers ────────────────────────────────────────────────────────
 
   private async issueTokens(
-    userId: string,
-    role: UserRole,
+    user: AuthUser,
     tier: number,
     existingSessionId?: string,
   ): Promise<AuthTokens> {
@@ -277,7 +286,7 @@ export class AuthService {
     const refreshJti = randomUUID();
 
     const accessToken = this.jwtService.sign(
-      { sub: userId, role, tier, sessionId, jti: accessJti },
+      { sub: user.id, role: user.role, tier, sessionId, jti: accessJti },
       {
         privateKey: this.keys.privateKey,
         algorithm: 'RS256',
@@ -286,7 +295,7 @@ export class AuthService {
     );
 
     const refreshToken = this.jwtService.sign(
-      { sub: userId, sessionId, jti: refreshJti },
+      { sub: user.id, sessionId, jti: refreshJti },
       {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET', 'refresh-dev-secret'),
         algorithm: 'HS256',
@@ -296,14 +305,25 @@ export class AuthService {
 
     await this.redis.set(
       `auth:refresh:${refreshJti}`,
-      JSON.stringify({ userId, sessionId } satisfies StoredRefresh),
+      JSON.stringify({ userId: user.id, sessionId } satisfies StoredRefresh),
       'EX',
       REFRESH_TTL,
     );
-    await this.redis.sadd(`auth:user_sessions:${userId}`, refreshJti);
-    await this.redis.expire(`auth:user_sessions:${userId}`, REFRESH_TTL);
+    await this.redis.sadd(`auth:user_sessions:${user.id}`, refreshJti);
+    await this.redis.expire(`auth:user_sessions:${user.id}`, REFRESH_TTL);
 
-    return { accessToken, refreshToken };
+    return {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatarUrl: user.avatarUrl,
+        emailVerified: user.emailVerified,
+      },
+    };
   }
 
   private async incrementFails(failKey: string, lockKey: string): Promise<void> {
@@ -321,7 +341,7 @@ export class AuthService {
     if (parts.length !== 3) throw new UnauthorizedException({ code: 'TOKEN_INVALID' });
 
     const header = JSON.parse(
-      Buffer.from(parts[0]!, 'base64url').toString('utf8'),
+      Buffer.from(parts[0], 'base64url').toString('utf8'),
     ) as { kid: string };
 
     const resp = await fetch('https://appleid.apple.com/auth/keys');

@@ -3,8 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import get_db
 from schemas import RecommendRequest, RecommendResponse, SimilarContentResponse
-from services.recommender import get_recommender
 from services.feed_composer import _popularity
+from services.recommender import get_recommender
 
 router = APIRouter(prefix="/recommend", tags=["recommend"])
 

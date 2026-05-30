@@ -1,16 +1,17 @@
 'use client';
+import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+
 import { learnerApi } from '@/lib/learner';
 import type { EnrolledModule } from '@/lib/learner';
+import { useAuthStore } from '@/lib/store';
 
 const STATUS_CONFIG: Record<EnrolledModule['status'], { label: string; color: string; icon: React.JSX.Element }> = {
   LOCKED: {
     label: 'Locked',
-    color: 'text-navy-500',
+    color: 'text-white/35',
     icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
         <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
@@ -18,7 +19,7 @@ const STATUS_CONFIG: Record<EnrolledModule['status'], { label: string; color: st
     ),
   },
   AVAILABLE: {
-    label: 'Start',
+    label: 'Open',
     color: 'text-orange-400',
     icon: (
       <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
@@ -52,11 +53,12 @@ interface Props {
 
 export default function EnrolledTrackPage({ params }: Props): React.JSX.Element {
   const router = useRouter();
-  const { accessToken } = useAuthStore();
+  const { accessToken, hasHydrated } = useAuthStore();
 
   useEffect(() => {
+    if (!hasHydrated) return;
     if (!accessToken) router.push(`/auth/login?returnUrl=/track/${params.trackId}`);
-  }, [accessToken, router, params.trackId]);
+  }, [accessToken, hasHydrated, router, params.trackId]);
 
   const { data: track, isLoading, error } = useQuery({
     queryKey: ['enrolled-track', params.trackId],
@@ -64,11 +66,11 @@ export default function EnrolledTrackPage({ params }: Props): React.JSX.Element 
     enabled: !!accessToken,
   });
 
-  if (!accessToken) return <></>;
+  if (!hasHydrated || !accessToken) return <></>;
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-navy-950 p-8">
+      <div className="min-h-screen bbt-screen p-8">
         <div className="mx-auto max-w-3xl space-y-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="rounded-xl bg-navy-800 h-20 animate-pulse" />
@@ -80,7 +82,7 @@ export default function EnrolledTrackPage({ params }: Props): React.JSX.Element 
 
   if (error || !track) {
     return (
-      <div className="min-h-screen bg-navy-950 flex items-center justify-center">
+      <div className="min-h-screen bbt-screen flex items-center justify-center">
         <div className="text-center">
           <p className="text-navy-400 mb-4">Track not found or you are not enrolled.</p>
           <Link href="/tracks" className="text-orange-400 hover:underline">Browse tracks →</Link>
@@ -90,7 +92,7 @@ export default function EnrolledTrackPage({ params }: Props): React.JSX.Element 
   }
 
   return (
-    <div className="min-h-screen bg-navy-950">
+    <div className="min-h-screen bbt-screen">
       {/* Header */}
       <div className="bg-navy-900 border-b border-navy-800 px-4 py-4">
         <div className="mx-auto max-w-3xl">
@@ -122,6 +124,12 @@ export default function EnrolledTrackPage({ params }: Props): React.JSX.Element 
 
       {/* Module list */}
       <div className="mx-auto max-w-3xl px-4 py-8 space-y-3">
+        <div className="mb-5 rounded-2xl border border-orange-400/20 bg-orange-500/10 p-4">
+          <p className="bbt-kicker mb-2">Enrollment active</p>
+          <p className="text-sm text-white/70">
+            Your free track is open. Start with the highlighted modules; paid or admin-approved access unlocks the full sequence.
+          </p>
+        </div>
         <h2 className="font-display text-xl text-white mb-4">Curriculum</h2>
         {track.modules.map((mod) => {
           const cfg = STATUS_CONFIG[mod.status];
@@ -129,12 +137,14 @@ export default function EnrolledTrackPage({ params }: Props): React.JSX.Element 
 
           const inner = (
             <>
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy-700 text-sm font-mono font-bold text-navy-300">
+              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-mono font-bold ${
+                isClickable ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/25' : 'bg-white/5 text-white/35'
+              }`}>
                 {mod.order}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
-                  <h3 className={`font-semibold text-sm ${mod.status === 'LOCKED' ? 'text-navy-500' : 'text-white'}`}>
+                  <h3 className={`font-semibold text-sm ${mod.status === 'LOCKED' ? 'text-white/45' : 'text-white'}`}>
                     {mod.title}
                   </h3>
                   {mod.status === 'LOCKED' && mod.prerequisiteTitle && (
@@ -143,7 +153,7 @@ export default function EnrolledTrackPage({ params }: Props): React.JSX.Element 
                     </span>
                   )}
                 </div>
-                <p className={`text-xs mt-0.5 line-clamp-1 ${mod.status === 'LOCKED' ? 'text-navy-600' : 'text-navy-400'}`}>
+                <p className={`text-xs mt-0.5 line-clamp-1 ${mod.status === 'LOCKED' ? 'text-white/25' : 'text-white/55'}`}>
                   {mod.description}
                 </p>
                 <p className="text-xs font-mono text-navy-500 mt-1">{mod.estimatedMinutes} min</p>
@@ -159,14 +169,14 @@ export default function EnrolledTrackPage({ params }: Props): React.JSX.Element 
             <Link
               key={mod.id}
               href={`/track/${params.trackId}/module/${mod.id}`}
-              className="flex items-start gap-4 rounded-xl border border-navy-700 bg-navy-800 p-4 hover:border-navy-500 hover:bg-navy-750 transition-colors"
+              className="flex items-start gap-4 rounded-xl border border-orange-400/25 bg-gradient-to-br from-orange-500/12 to-navy-800 p-4 shadow-lg shadow-black/20 transition-colors hover:border-orange-300/50 hover:bg-navy-750"
             >
               {inner}
             </Link>
           ) : (
             <div
               key={mod.id}
-              className="flex items-start gap-4 rounded-xl border border-navy-800 bg-navy-900 p-4 opacity-60 cursor-not-allowed"
+              className="flex items-start gap-4 rounded-xl border border-white/5 bg-white/[0.025] p-4"
             >
               {inner}
             </div>

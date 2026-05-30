@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
-import { CohortService } from './cohort.service';
-import { CohortController } from './cohort.controller';
-import { CohortGateway } from './cohort.gateway';
+
 import { AuthModule } from '../auth/auth.module';
 import { KeysModule } from '../keys/keys.module';
+
+import { CohortController } from './cohort.controller';
+import { CohortGateway } from './cohort.gateway';
+import { CohortService } from './cohort.service';
 
 @Module({
   imports: [AuthModule, KeysModule],

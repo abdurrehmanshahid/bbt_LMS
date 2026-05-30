@@ -11,20 +11,23 @@ import {
   HttpStatus,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
-import { AuthService } from './auth.service';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+
+import { AuthService } from './auth.service';
+import { AppleSignInDto } from './dto/apple-signin.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { LoginDto } from './dto/login.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { SignupDto } from './dto/signup.dto';
+import type { AuthTokens } from './interfaces/auth-tokens.interface';
 import type { JwtPayload } from './interfaces/jwt-payload.interface';
 import type { GoogleUser } from './strategies/google.strategy';
-import { SignupDto } from './dto/signup.dto';
-import { LoginDto } from './dto/login.dto';
-import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
-import { AppleSignInDto } from './dto/apple-signin.dto';
-import { ConfigService } from '@nestjs/config';
 
 const REFRESH_COOKIE = 'refresh_token';
 const COOKIE_OPTS = {
@@ -46,10 +49,10 @@ export class AuthController {
   async signup(
     @Body() dto: SignupDto,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ accessToken: string }> {
-    const { accessToken, refreshToken } = await this.authService.signup(dto);
+  ): Promise<Omit<AuthTokens, 'refreshToken'>> {
+    const { refreshToken, ...payload } = await this.authService.signup(dto);
     this.setRefreshCookie(res, refreshToken);
-    return { accessToken };
+    return payload;
   }
 
   @Post('login')
@@ -58,10 +61,10 @@ export class AuthController {
   async login(
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ accessToken: string }> {
-    const { accessToken, refreshToken } = await this.authService.login(dto);
+  ): Promise<Omit<AuthTokens, 'refreshToken'>> {
+    const { refreshToken, ...payload } = await this.authService.login(dto);
     this.setRefreshCookie(res, refreshToken);
-    return { accessToken };
+    return payload;
   }
 
   @Post('refresh')
@@ -69,14 +72,14 @@ export class AuthController {
   async refresh(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ accessToken: string }> {
+  ): Promise<Omit<AuthTokens, 'refreshToken'>> {
     const cookies = req.cookies as Record<string, string> | undefined;
     const rawToken = cookies?.[REFRESH_COOKIE];
     if (!rawToken) throw new UnauthorizedException({ code: 'TOKEN_INVALID' });
 
-    const { accessToken, refreshToken } = await this.authService.refresh(rawToken);
+    const { refreshToken, ...payload } = await this.authService.refresh(rawToken);
     this.setRefreshCookie(res, refreshToken);
-    return { accessToken };
+    return payload;
   }
 
   @Post('logout')
@@ -116,10 +119,10 @@ export class AuthController {
   async apple(
     @Body() dto: AppleSignInDto,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<{ accessToken: string }> {
-    const { accessToken, refreshToken } = await this.authService.handleAppleSignIn(dto);
+  ): Promise<Omit<AuthTokens, 'refreshToken'>> {
+    const { refreshToken, ...payload } = await this.authService.handleAppleSignIn(dto);
     this.setRefreshCookie(res, refreshToken);
-    return { accessToken };
+    return payload;
   }
 
   @Post('forgot-password')

@@ -52,8 +52,26 @@ export interface DashboardData {
   recentContent: ContentRow[];
 }
 
+export interface CreatorCourse {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  icon: string;
+  status: 'DRAFT' | 'PUBLISHED';
+  moduleCount: number;
+  contentCount: number;
+  enrollmentCount: number;
+  updatedAt: string;
+}
+
 export interface UploadInitResponse {
   contentId: string;
+  uploadUrl: string;
+}
+
+export interface CreateUploadResponse {
+  content: { id: string; title: string; status: ContentStatus; muxAssetId: string | null };
   uploadUrl: string;
 }
 
@@ -103,11 +121,29 @@ export const creatorApi = {
   getDashboard: (token: string) =>
     authedFetch<DashboardData>('/creator/dashboard', token),
 
+  getCourses: (token: string) =>
+    authedFetch<CreatorCourse[]>('/creator/courses', token),
+
+  createCourse: (token: string, payload: { title: string; slug: string; description: string; icon?: string }) =>
+    authedPost<CreatorCourse>('/creator/courses', token, payload),
+
   getContent: (token: string) =>
     authedFetch<ContentRow[]>('/creator/content', token),
 
   initUpload: (token: string, filename: string, filesize: number) =>
     authedPost<UploadInitResponse>('/creator/upload', token, { filename, filesize }),
+
+  createUpload: (token: string, payload: {
+    title: string;
+    description?: string;
+    trackId: string;
+    moduleId?: string;
+    conceptId?: string;
+    type: ContentType;
+    tags?: string[];
+    quickReel?: boolean;
+    durationSeconds?: number;
+  }) => authedPost<CreateUploadResponse>('/creator/upload', token, payload),
 
   submitMetadata: (token: string, contentId: string, meta: {
     title: string; trackId: string; type: ContentType; moduleId?: string;
@@ -131,4 +167,10 @@ export const creatorApi = {
 
   requestPayout: (token: string) =>
     authedPost<void>('/creator/revenue/payout', token, {}),
+
+  onboardStripeConnect: (token: string) =>
+    authedPost<{ url?: string; alreadyOnboarded?: boolean }>('/creator/connect/onboard', token, {}),
+
+  getConnectStatus: (token: string) =>
+    authedFetch<{ accountId: string | null; onboarded: boolean }>('/creator/connect/status', token),
 };

@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import React, { useState } from 'react';
 import {
   View,
@@ -8,9 +9,9 @@ import {
   ActivityIndicator,
   Dimensions,
 } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+
 import { creatorApi } from '@/lib/creator';
+import { useAuthStore } from '@/lib/store';
 
 type Period = '7d' | '30d' | '90d';
 const PERIODS: Period[] = ['7d', '30d', '90d'];

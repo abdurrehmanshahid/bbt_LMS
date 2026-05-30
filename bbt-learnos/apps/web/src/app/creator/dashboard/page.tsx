@@ -1,9 +1,11 @@
 'use client';
-import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+import Link from 'next/link';
+import React from 'react';
+
 import { creatorApi } from '@/lib/creator';
 import type { ContentRow, ContentStatus } from '@/lib/creator';
+import { useAuthStore } from '@/lib/store';
 
 const TIER_LABEL = { 1: 'Emerging', 2: 'Established', 3: 'Expert' } as const;
 const TIER_COLOR = { 1: 'text-navy-400', 2: 'text-indigo-400', 3: 'text-orange-400' } as const;
@@ -36,8 +38,8 @@ function ContentTable({ rows }: { rows: ContentRow[] }) {
   }
 
   const sorted = [...rows].sort((a, b) => {
-    const av = a[sortKey] as number | string;
-    const bv = b[sortKey] as number | string;
+    const av = a[sortKey];
+    const bv = b[sortKey];
     return sortDir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
   });
 
@@ -112,7 +114,6 @@ function ContentTable({ rows }: { rows: ContentRow[] }) {
 }
 
 // Need React for useState in ContentTable
-import React from 'react';
 
 export default function CreatorDashboardPage(): React.JSX.Element {
   const { accessToken } = useAuthStore();
@@ -144,15 +145,23 @@ export default function CreatorDashboardPage(): React.JSX.Element {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="font-display text-2xl text-white">Creator Dashboard</h1>
-        <Link
-          href="/creator/upload"
-          className="inline-flex h-9 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
-        >
-          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          Upload
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/creator/upload"
+            className="inline-flex h-9 items-center rounded-lg border border-navy-600 px-4 text-sm font-semibold text-white transition-colors hover:border-navy-400"
+          >
+            Upload
+          </Link>
+          <Link
+            href="/creator/upload"
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-orange-500 px-4 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Post a Reel
+          </Link>
+        </div>
       </div>
 
       {/* KPI cards */}

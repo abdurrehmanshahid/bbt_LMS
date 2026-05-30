@@ -1,11 +1,15 @@
 'use client';
+import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+
+import { BrandLogo } from '@/components/BrandLogo';
+import { getTrack } from '@/lib/api';
 import { authApi } from '@/lib/auth';
+import { learnerApi } from '@/lib/learner';
 import { useAuthStore } from '@/lib/store';
 
 const schema = z
@@ -49,6 +53,7 @@ export default function SignupPage(): React.JSX.Element {
   const [serverError, setServerError] = useState<string | null>(null);
 
   const role = searchParams.get('role') ?? undefined;
+  const trackSlug = searchParams.get('track') ?? undefined;
 
   const {
     register,
@@ -65,6 +70,23 @@ export default function SignupPage(): React.JSX.Element {
     try {
       const res = await authApi.signup({ name: data.name, email: data.email, password: data.password, ...(role ? { role } : {}) });
       setAuth(res.user, res.accessToken);
+      if (trackSlug && (!role || role === 'LEARNER')) {
+        try {
+          const track = await getTrack(trackSlug);
+          await learnerApi.enrollFree(res.accessToken, track.id);
+          router.push(`/track/${track.id}`);
+          return;
+        } catch (enrollErr) {
+          const msg = enrollErr instanceof Error ? enrollErr.message : '';
+          if (msg.includes('409') || msg.includes('already')) {
+            const track = await getTrack(trackSlug);
+            router.push(`/track/${track.id}`);
+            return;
+          }
+          router.push(`/tracks/${trackSlug}`);
+          return;
+        }
+      }
       router.push('/onboarding/quiz');
     } catch (err) {
       setServerError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
@@ -74,16 +96,13 @@ export default function SignupPage(): React.JSX.Element {
   const apiBase = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:4000/api';
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-navy-950 px-4 py-12">
+    <div className="min-h-screen bbt-screen flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <span className="font-display text-2xl text-white">BBT</span>
-            <span className="font-mono text-xs text-orange-500 border border-orange-500 px-1.5 py-0.5 rounded">LearnOS</span>
-          </Link>
-          <h1 className="mt-4 font-display text-3xl text-white">Create your account</h1>
-          <p className="mt-1 text-sm text-navy-400">
+          <BrandLogo priority />
+          <h1 className="mt-4 font-display text-3xl bbt-title">Create your account</h1>
+          <p className="mt-1 text-sm bbt-copy">
             Already have an account?{' '}
             <Link href="/auth/login" className="text-orange-400 hover:text-orange-300 transition-colors">
               Sign in
@@ -117,7 +136,15 @@ export default function SignupPage(): React.JSX.Element {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
+          <form
+            method="post"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSubmit(onSubmit)(event);
+            }}
+            noValidate
+            className="space-y-5"
+          >
             {serverError && (
               <div role="alert" className="rounded-lg bg-red-900/40 border border-red-700 px-4 py-3 text-sm text-red-300">
                 {serverError}
@@ -269,7 +296,8 @@ export default function SignupPage(): React.JSX.Element {
             </div>
 
             <button
-              type="submit"
+              type="button"
+              onClick={() => { void handleSubmit(onSubmit)(); }}
               disabled={isSubmitting}
               className="w-full rounded-lg bg-orange-500 py-3 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >

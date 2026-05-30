@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+
 import './globals.css';
 import { Nav } from '@/components/Nav';
 import { Providers } from '@/components/Providers';
@@ -6,7 +7,7 @@ import { Providers } from '@/components/Providers';
 export const metadata: Metadata = {
   metadataBase: new URL(process.env['NEXT_PUBLIC_SITE_URL'] ?? 'https://bbt.edu.pk'),
   title: {
-    default: 'BBT LearnOS — The Career Operating System Pakistan Needed',
+    default: 'BBT LearnOS - The Career Operating System Pakistan Needed',
     template: '%s | BBT LearnOS',
   },
   description:
@@ -24,20 +25,26 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }): React.JSX.Element {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen flex flex-col">
-        <Nav />
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script src="/theme-init.js" />
+      </head>
+      <body className="min-h-screen flex flex-col bg-[var(--bbt-bg)] text-[var(--bbt-text-1)]">
         <Providers>
+          <Nav />
           <main className="flex-1">{children}</main>
         </Providers>
-        <footer className="border-t border-navy-100 dark:border-navy-800 py-8">
+        <footer className="border-t border-[var(--bbt-border)] bg-[color-mix(in_srgb,var(--bbt-surface-1)_72%,transparent)] py-8 backdrop-blur-xl">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-navy-400 dark:text-navy-500">
-              <p>© {new Date().getFullYear()} Big Binary Tech. 444-Q Phase 2 DHA Lahore.</p>
-              <div className="flex gap-6">
-                <a href="/privacy" className="hover:text-navy-700 dark:hover:text-navy-300 transition-colors">Privacy</a>
-                <a href="/terms" className="hover:text-navy-700 dark:hover:text-navy-300 transition-colors">Terms</a>
-                <a href="/content-policy" className="hover:text-navy-700 dark:hover:text-navy-300 transition-colors">Content Policy</a>
+            <div className="flex flex-col gap-4 text-sm text-[var(--bbt-text-3)] sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p>Copyright {new Date().getFullYear()} Big Binary Tech. 444-Q Phase 2 DHA Lahore.</p>
+                <p className="bbt-kicker mt-2">PSDA / NAVTTC / Cisco Networking Academy aligned training</p>
+              </div>
+              <div className="flex flex-wrap gap-6">
+                <a href="/privacy" className="transition-colors hover:text-[var(--bbt-text-1)]">Privacy</a>
+                <a href="/terms" className="transition-colors hover:text-[var(--bbt-text-1)]">Terms</a>
+                <a href="/content-policy" className="transition-colors hover:text-[var(--bbt-text-1)]">Content Policy</a>
               </div>
             </div>
           </div>

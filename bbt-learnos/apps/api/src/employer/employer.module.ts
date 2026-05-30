@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
-import { EmployerService } from './employer.service';
+
 import { EmployerController, BadgeVerifyController } from './employer.controller';
+import { EmployerService } from './employer.service';
 
 @Module({
   controllers: [EmployerController, BadgeVerifyController],

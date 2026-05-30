@@ -1,7 +1,36 @@
 'use client';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+
 import { creatorApi } from '@/lib/creator';
+import { useAuthStore } from '@/lib/store';
+
+function ConnectSection({ token }: { token: string }): React.JSX.Element {
+  const { data, isLoading } = useQuery({
+    queryKey: ['connect-status'],
+    queryFn: () => creatorApi.getConnectStatus(token),
+  });
+  const onboardMut = useMutation({
+    mutationFn: () => creatorApi.onboardStripeConnect(token),
+    onSuccess: (res) => {
+      if (res.url) window.location.href = res.url;
+    },
+  });
+
+  if (isLoading) return <span className="text-xs text-navy-500">Loading…</span>;
+  if (data?.onboarded) {
+    return <span className="inline-flex items-center gap-1.5 rounded-full bg-green-900/30 px-3 py-1 text-xs font-semibold text-green-400">Connected ✓</span>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onboardMut.mutate()}
+      disabled={onboardMut.isPending}
+      className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+    >
+      {onboardMut.isPending ? 'Redirecting…' : 'Connect bank account'}
+    </button>
+  );
+}
 
 const STATUS_COLOR: Record<string, string> = {
   PAID: 'text-green-400',
@@ -128,18 +157,13 @@ export default function RevenuePage(): React.JSX.Element {
             </div>
           )}
 
-          {/* Bank settings link */}
+          {/* Bank settings / Connect */}
           <div className="rounded-2xl border border-navy-700 bg-navy-800 p-5 flex items-center justify-between">
             <div>
               <p className="font-semibold text-white">Payment settings</p>
-              <p className="text-sm text-navy-400 mt-0.5">Manage bank account or Stripe Connect for payouts.</p>
+              <p className="text-sm text-navy-400 mt-0.5">Connect your bank account via Stripe for instant payouts.</p>
             </div>
-            <a
-              href="mailto:payments@bigbinarytech.com?subject=Payment%20Settings"
-              className="text-xs font-mono text-orange-400 hover:text-orange-300 transition-colors"
-            >
-              Contact finance →
-            </a>
+            <ConnectSection token={accessToken!} />
           </div>
         </>
       ) : null}

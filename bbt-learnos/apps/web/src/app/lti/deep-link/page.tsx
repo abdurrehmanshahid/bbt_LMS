@@ -1,7 +1,8 @@
 'use client';
-import React, { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
+import React, { useState } from 'react';
+
 import { apiFetch, apiPost } from '@/lib/api';
 import type { TrackSummary } from '@/lib/api';
 
@@ -73,10 +74,10 @@ export default function LtiDeepLinkPage(): React.JSX.Element {
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f9fc] p-6">
+    <div className="min-h-screen bbt-screen p-6">
       <div className="max-w-2xl mx-auto space-y-6">
         <div className="bg-[#0d0d2e] text-white rounded-xl p-5 flex items-center gap-3">
-          <img src="/logo.png" alt="BBT" className="h-8 w-auto" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          <img src="/bbt-emblem.png" alt="Big Binary Tech" className="h-8 w-auto" />
           <div>
             <p className="font-semibold text-sm">BBT LearnOS — Deep Linking</p>
             <p className="text-xs text-white/50">Select tracks to embed in your LMS course</p>

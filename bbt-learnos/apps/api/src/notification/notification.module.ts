@@ -1,11 +1,14 @@
-import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { NotificationService } from './notification.service';
-import { NotificationController } from './notification.controller';
-import { PushProcessor } from './push.processor';
-import { EmailProcessor } from './email.processor';
+import { Module } from '@nestjs/common';
+
 import { EmailModule } from '../email/email.module';
+
+import { EmailProcessor } from './email.processor';
+import { NotificationController } from './notification.controller';
+import { NotificationService } from './notification.service';
 import { PUSH_QUEUE, EMAIL_QUEUE } from './notification.types';
+import { PushProcessor } from './push.processor';
+
 
 @Module({
   imports: [

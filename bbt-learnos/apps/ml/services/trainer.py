@@ -69,7 +69,6 @@ async def retrain(db: AsyncSession) -> dict:
             "title": r[1],
             "type": r[2],
             "trackId": r[3],
-            "trackId": r[3],
             "moduleId": r[4],
             "conceptId": r[5],
             "muxPlaybackId": r[6],

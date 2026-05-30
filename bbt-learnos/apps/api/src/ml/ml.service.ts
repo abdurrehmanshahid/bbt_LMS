@@ -1,5 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
 
@@ -55,8 +55,9 @@ export class MlService {
           )
           .pipe(
             timeout(3000),
-            catchError((err) => {
-              this.logger.warn(`ML feed unavailable: ${err.message}`);
+            catchError((err: unknown) => {
+              const message = err instanceof Error ? err.message : 'unknown error';
+              this.logger.warn(`ML feed unavailable: ${message}`);
               return of(null);
             }),
           ),

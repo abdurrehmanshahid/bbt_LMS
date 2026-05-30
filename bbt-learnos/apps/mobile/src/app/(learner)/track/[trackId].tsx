@@ -1,3 +1,5 @@
+import { useQuery } from '@tanstack/react-query';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
 import {
   View,
@@ -8,10 +10,9 @@ import {
   ActivityIndicator,
   Pressable,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+
 import { learnerApi, type Module } from '@/lib/learner';
+import { useAuthStore } from '@/lib/store';
 
 const STATUS_CONFIG: Record<Module['status'], { color: string; bg: string; label: string }> = {
   COMPLETED: { color: '#22c55e', bg: '#14532d33', label: 'Done' },

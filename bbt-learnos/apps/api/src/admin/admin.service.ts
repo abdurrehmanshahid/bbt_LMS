@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { EnrollmentPlan, EnrollmentStatus, ModerationDecision, Prisma, UserRole } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+
+import { ClickHouseService } from '../analytics/clickhouse.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SearchService } from '../search/search.service';
-import { ClickHouseService } from '../analytics/clickhouse.service';
-import { ModerationDecision } from '@prisma/client';
 
 export interface ModeratePayload {
   decision: ModerationDecision;
@@ -16,6 +18,82 @@ export interface UserActionPayload {
   days?: number;
   reason?: string;
 }
+
+export interface LaunchChallengePayload {
+  title: string;
+  hashtag: string;
+  description?: string;
+  startsAt?: string;
+  endsAt?: string;
+  isPinned?: boolean;
+}
+
+export interface CreateUserPayload {
+  email: string;
+  name: string;
+  password: string;
+  role: UserRole;
+  emailVerified?: boolean;
+}
+
+export interface UpdateUserPayload {
+  name?: string;
+  role?: UserRole;
+  isActive?: boolean;
+  emailVerified?: boolean;
+}
+
+export interface EnrollUserPayload {
+  trackId: string;
+  plan?: EnrollmentPlan;
+}
+
+export interface UpdateEnrollmentPayload {
+  status?: EnrollmentStatus;
+  plan?: EnrollmentPlan;
+}
+
+export interface CreateCoursePayload {
+  title: string;
+  slug: string;
+  description: string;
+  icon?: string;
+  isActive?: boolean;
+}
+
+export interface UpdateCoursePayload {
+  title?: string;
+  description?: string;
+  icon?: string;
+  isActive?: boolean;
+}
+
+export interface CreateModulePayload {
+  title: string;
+  description: string;
+  estimatedMinutes: number;
+  passingScore?: number;
+  order?: number;
+}
+
+export interface UpdateModulePayload {
+  title?: string;
+  description?: string;
+  estimatedMinutes?: number;
+  passingScore?: number;
+  order?: number;
+  isActive?: boolean;
+}
+
+export interface CreateConceptPayload {
+  title: string;
+  description?: string;
+  order?: number;
+  prerequisiteIds?: string[];
+}
+
+const BCRYPT_COST = 12;
+const DEFAULT_ADMIN_ENROLLMENT_PLAN = EnrollmentPlan.MONTHLY;
 
 @Injectable()
 export class AdminService {
@@ -109,7 +187,7 @@ export class AdminService {
     await this.prisma.$transaction([
       this.prisma.content.update({
         where: { id: contentId },
-        data: { status: newStatus as 'APPROVED' | 'PENDING_MODERATION' | 'REJECTED' },
+        data: { status: newStatus },
       }),
       this.prisma.moderationRecord.updateMany({
         where: { contentId, decision: 'PENDING' },
@@ -250,7 +328,7 @@ export class AdminService {
             plan: true,
             status: true,
             startDate: true,
-            track: { select: { title: true } },
+            track: { select: { id: true, title: true } },
           },
           orderBy: { createdAt: 'desc' },
           take: 10,
@@ -277,6 +355,7 @@ export class AdminService {
       createdAt: user.createdAt.toISOString(),
       lastActiveAt: user.updatedAt.toISOString(),
       enrollments: user.enrollments.map((e) => ({
+        trackId: e.track.id,
         trackTitle: e.track.title,
         plan: e.plan,
         status: e.status,
@@ -291,6 +370,465 @@ export class AdminService {
       })),
       moderationInteractions: [] as Array<{ contentTitle: string; decision: string; createdAt: string }>,
     };
+  }
+
+  async createUser(payload: CreateUserPayload) {
+    const existing = await this.prisma.user.findUnique({
+      where: { email: payload.email.toLowerCase() },
+      select: { id: true },
+    });
+    if (existing) throw new ConflictException({ code: 'EMAIL_ALREADY_EXISTS', message: 'A user with this email already exists.' });
+
+    const passwordHash = await bcrypt.hash(payload.password, BCRYPT_COST);
+
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: payload.email.toLowerCase(),
+          name: payload.name,
+          passwordHash,
+          role: payload.role,
+          emailVerified: payload.emailVerified ?? true,
+          ...(payload.role === UserRole.LEARNER ? { learnerProfile: { create: {} } } : {}),
+          ...(payload.role === UserRole.CREATOR
+            ? {
+                creatorProfile: {
+                  create: {
+                    displayName: await uniqueCreatorDisplayName(tx, payload.name),
+                    revenueSharePercent: 0,
+                  },
+                },
+              }
+            : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          isActive: true,
+          emailVerified: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+        emailVerified: user.emailVerified,
+        enrolledTrack: null,
+        subscriptionTier: null,
+        createdAt: user.createdAt.toISOString(),
+        lastActiveAt: user.updatedAt.toISOString(),
+      };
+    });
+  }
+
+  async updateUser(userId: string, payload: UpdateUserPayload) {
+    const existing = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!existing) throw new NotFoundException('User not found');
+
+    return this.prisma.$transaction(async (tx) => {
+      const nextRole = payload.role ?? existing.role;
+
+      const user = await tx.user.update({
+        where: { id: userId },
+        data: {
+          ...(payload.name !== undefined ? { name: payload.name } : {}),
+          ...(payload.role !== undefined ? { role: payload.role } : {}),
+          ...(payload.isActive !== undefined ? { isActive: payload.isActive } : {}),
+          ...(payload.emailVerified !== undefined ? { emailVerified: payload.emailVerified } : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          isActive: true,
+          emailVerified: true,
+          createdAt: true,
+          updatedAt: true,
+          learnerProfile: { select: { currentTrackId: true } },
+        },
+      });
+
+      if (nextRole === UserRole.LEARNER) {
+        await tx.learnerProfile.upsert({
+          where: { userId },
+          create: { userId },
+          update: {},
+        });
+      }
+      if (nextRole === UserRole.CREATOR) {
+        await tx.creatorProfile.upsert({
+          where: { userId },
+          create: {
+            userId,
+            displayName: await uniqueCreatorDisplayName(tx, user.name),
+            revenueSharePercent: 0,
+          },
+          update: {},
+        });
+      }
+
+      return {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+        emailVerified: user.emailVerified,
+        enrolledTrack: user.learnerProfile?.currentTrackId ?? null,
+        subscriptionTier: null,
+        createdAt: user.createdAt.toISOString(),
+        lastActiveAt: user.updatedAt.toISOString(),
+      };
+    });
+  }
+
+  async enrollUser(userId: string, payload: EnrollUserPayload) {
+    const [user, track] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } }),
+      this.prisma.track.findUnique({ where: { id: payload.trackId }, select: { id: true } }),
+    ]);
+    if (!user) throw new NotFoundException('User not found');
+    if (!track) throw new NotFoundException('Track not found');
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: userId }, data: { role: UserRole.LEARNER } });
+      await tx.learnerProfile.upsert({
+        where: { userId },
+        create: { userId, currentTrackId: payload.trackId },
+        update: { currentTrackId: payload.trackId },
+      });
+
+      const existing = await tx.enrollment.findUnique({
+        where: { learnerId_trackId: { learnerId: userId, trackId: payload.trackId } },
+        select: { id: true, status: true },
+      });
+
+      const enrollment = await tx.enrollment.upsert({
+        where: { learnerId_trackId: { learnerId: userId, trackId: payload.trackId } },
+        create: {
+          learnerId: userId,
+          trackId: payload.trackId,
+          plan: payload.plan ?? DEFAULT_ADMIN_ENROLLMENT_PLAN,
+          status: EnrollmentStatus.ACTIVE,
+        },
+        update: {
+          plan: payload.plan ?? DEFAULT_ADMIN_ENROLLMENT_PLAN,
+          status: EnrollmentStatus.ACTIVE,
+          endDate: null,
+        },
+        select: { id: true, plan: true, status: true, startDate: true, track: { select: { id: true, title: true } } },
+      });
+
+      if (!existing || existing.status !== EnrollmentStatus.ACTIVE) {
+        await tx.track.update({
+          where: { id: payload.trackId },
+          data: { enrollmentCount: { increment: 1 } },
+        });
+      }
+
+      return {
+        id: enrollment.id,
+        trackId: enrollment.track.id,
+        trackTitle: enrollment.track.title,
+        plan: enrollment.plan,
+        status: enrollment.status,
+        startDate: enrollment.startDate.toISOString(),
+      };
+    });
+  }
+
+  async updateEnrollment(userId: string, trackId: string, payload: UpdateEnrollmentPayload) {
+    const enrollment = await this.prisma.enrollment.findUnique({
+      where: { learnerId_trackId: { learnerId: userId, trackId } },
+      select: { status: true },
+    });
+    if (!enrollment) throw new NotFoundException('Enrollment not found');
+
+    const nextStatus = payload.status ?? enrollment.status;
+    const updated = await this.prisma.enrollment.update({
+      where: { learnerId_trackId: { learnerId: userId, trackId } },
+      data: {
+        ...(payload.plan ? { plan: payload.plan } : {}),
+        ...(payload.status ? { status: payload.status } : {}),
+        ...(nextStatus === EnrollmentStatus.ACTIVE ? { endDate: null } : { endDate: new Date() }),
+      },
+      select: { id: true, plan: true, status: true, startDate: true, track: { select: { id: true, title: true } } },
+    });
+
+    return {
+      id: updated.id,
+      trackId: updated.track.id,
+      trackTitle: updated.track.title,
+      plan: updated.plan,
+      status: updated.status,
+      startDate: updated.startDate.toISOString(),
+    };
+  }
+
+  async getCourses() {
+    const tracks = await this.prisma.track.findMany({
+      orderBy: { trackNumber: 'asc' },
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        description: true,
+        icon: true,
+        trackNumber: true,
+        isActive: true,
+        enrollmentCount: true,
+        avgCompletionRate: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: { select: { modules: true, content: true, enrollments: true } },
+      },
+    });
+
+    return tracks.map((track) => ({
+      id: track.id,
+      slug: track.slug,
+      title: track.title,
+      description: track.description,
+      icon: track.icon,
+      trackNumber: track.trackNumber,
+      status: track.isActive ? 'PUBLISHED' : 'DRAFT',
+      enrollmentCount: track.enrollmentCount,
+      avgCompletionRate: track.avgCompletionRate,
+      moduleCount: track._count.modules,
+      contentCount: track._count.content,
+      activeEnrollmentCount: track._count.enrollments,
+      createdAt: track.createdAt.toISOString(),
+      updatedAt: track.updatedAt.toISOString(),
+    }));
+  }
+
+  async createCourse(payload: CreateCoursePayload) {
+    const maxTrack = await this.prisma.track.aggregate({ _max: { trackNumber: true } });
+    const created = await this.prisma.track.create({
+      data: {
+        title: payload.title,
+        slug: normalizeSlug(payload.slug),
+        description: payload.description,
+        icon: payload.icon ?? 'BBT',
+        isActive: payload.isActive ?? false,
+        trackNumber: (maxTrack._max.trackNumber ?? 0) + 1,
+      },
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        description: true,
+        icon: true,
+        trackNumber: true,
+        isActive: true,
+        enrollmentCount: true,
+        avgCompletionRate: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return {
+      ...created,
+      status: created.isActive ? 'PUBLISHED' : 'DRAFT',
+      moduleCount: 0,
+      contentCount: 0,
+      activeEnrollmentCount: 0,
+      createdAt: created.createdAt.toISOString(),
+      updatedAt: created.updatedAt.toISOString(),
+    };
+  }
+
+  async updateCourse(trackId: string, payload: UpdateCoursePayload) {
+    const track = await this.prisma.track.update({
+      where: { id: trackId },
+      data: {
+        ...(payload.title !== undefined ? { title: payload.title } : {}),
+        ...(payload.description !== undefined ? { description: payload.description } : {}),
+        ...(payload.icon !== undefined ? { icon: payload.icon } : {}),
+        ...(payload.isActive !== undefined ? { isActive: payload.isActive } : {}),
+      },
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        description: true,
+        icon: true,
+        trackNumber: true,
+        isActive: true,
+        enrollmentCount: true,
+        avgCompletionRate: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: { select: { modules: true, content: true, enrollments: true } },
+      },
+    });
+
+    return {
+      id: track.id,
+      slug: track.slug,
+      title: track.title,
+      description: track.description,
+      icon: track.icon,
+      trackNumber: track.trackNumber,
+      status: track.isActive ? 'PUBLISHED' : 'DRAFT',
+      enrollmentCount: track.enrollmentCount,
+      avgCompletionRate: track.avgCompletionRate,
+      moduleCount: track._count.modules,
+      contentCount: track._count.content,
+      activeEnrollmentCount: track._count.enrollments,
+      createdAt: track.createdAt.toISOString(),
+      updatedAt: track.updatedAt.toISOString(),
+    };
+  }
+
+  // ─── Modules ──────────────────────────────────────────────────────────────────
+
+  async getModules(trackId: string) {
+    const track = await this.prisma.track.findUnique({ where: { id: trackId } });
+    if (!track) throw new NotFoundException('Track not found');
+
+    const modules = await this.prisma.module.findMany({
+      where: { trackId },
+      orderBy: { order: 'asc' },
+      select: {
+        id: true, title: true, description: true, order: true,
+        estimatedMinutes: true, passingScore: true, isActive: true,
+        _count: { select: { concepts: true, content: true } },
+      },
+    });
+    return modules;
+  }
+
+  async createModule(trackId: string, payload: CreateModulePayload) {
+    const track = await this.prisma.track.findUnique({ where: { id: trackId } });
+    if (!track) throw new NotFoundException('Track not found');
+
+    const maxOrder = await this.prisma.module.aggregate({
+      where: { trackId },
+      _max: { order: true },
+    });
+    const order = payload.order ?? (maxOrder._max.order ?? 0) + 1;
+
+    return this.prisma.module.create({
+      data: {
+        trackId,
+        title: payload.title,
+        description: payload.description,
+        estimatedMinutes: payload.estimatedMinutes,
+        passingScore: payload.passingScore ?? 60,
+        order,
+        isActive: true,
+      },
+      select: {
+        id: true, title: true, description: true, order: true,
+        estimatedMinutes: true, passingScore: true, isActive: true,
+        _count: { select: { concepts: true, content: true } },
+      },
+    });
+  }
+
+  async updateModule(trackId: string, moduleId: string, payload: UpdateModulePayload) {
+    const mod = await this.prisma.module.findFirst({ where: { id: moduleId, trackId } });
+    if (!mod) throw new NotFoundException('Module not found');
+
+    return this.prisma.module.update({
+      where: { id: moduleId },
+      data: {
+        ...(payload.title !== undefined && { title: payload.title }),
+        ...(payload.description !== undefined && { description: payload.description }),
+        ...(payload.estimatedMinutes !== undefined && { estimatedMinutes: payload.estimatedMinutes }),
+        ...(payload.passingScore !== undefined && { passingScore: payload.passingScore }),
+        ...(payload.order !== undefined && { order: payload.order }),
+        ...(payload.isActive !== undefined && { isActive: payload.isActive }),
+      },
+      select: {
+        id: true, title: true, description: true, order: true,
+        estimatedMinutes: true, passingScore: true, isActive: true,
+        _count: { select: { concepts: true, content: true } },
+      },
+    });
+  }
+
+  async deleteModule(trackId: string, moduleId: string) {
+    const mod = await this.prisma.module.findFirst({ where: { id: moduleId, trackId } });
+    if (!mod) throw new NotFoundException('Module not found');
+    await this.prisma.module.delete({ where: { id: moduleId } });
+    return { deleted: true };
+  }
+
+  // ─── Concepts ─────────────────────────────────────────────────────────────────
+
+  async getConcepts(moduleId: string) {
+    const mod = await this.prisma.module.findUnique({ where: { id: moduleId } });
+    if (!mod) throw new NotFoundException('Module not found');
+
+    return this.prisma.concept.findMany({
+      where: { moduleId },
+      orderBy: { order: 'asc' },
+      select: {
+        id: true, title: true, description: true, order: true,
+        prerequisites: { select: { prerequisiteId: true } },
+      },
+    });
+  }
+
+  async createConcept(moduleId: string, payload: CreateConceptPayload) {
+    const mod = await this.prisma.module.findUnique({ where: { id: moduleId } });
+    if (!mod) throw new NotFoundException('Module not found');
+
+    const maxOrder = await this.prisma.concept.aggregate({
+      where: { moduleId },
+      _max: { order: true },
+    });
+    const order = payload.order ?? (maxOrder._max.order ?? 0) + 1;
+
+    return this.prisma.$transaction(async (tx) => {
+      const concept = await tx.concept.create({
+        data: { moduleId, title: payload.title, description: payload.description ?? '', order },
+        select: { id: true, title: true, description: true, order: true },
+      });
+
+      if (payload.prerequisiteIds?.length) {
+        await tx.conceptPrerequisite.createMany({
+          data: payload.prerequisiteIds.map((prereqId) => ({
+            conceptId: concept.id,
+            prerequisiteId: prereqId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+      return concept;
+    });
+  }
+
+  async updateConcept(moduleId: string, conceptId: string, payload: { title?: string; description?: string }) {
+    const concept = await this.prisma.concept.findFirst({ where: { id: conceptId, moduleId } });
+    if (!concept) throw new NotFoundException('Concept not found');
+
+    return this.prisma.concept.update({
+      where: { id: conceptId },
+      data: {
+        ...(payload.title !== undefined && { title: payload.title }),
+        ...(payload.description !== undefined && { description: payload.description }),
+      },
+      select: { id: true, title: true, description: true, order: true },
+    });
+  }
+
+  async deleteConcept(moduleId: string, conceptId: string) {
+    const concept = await this.prisma.concept.findFirst({ where: { id: conceptId, moduleId } });
+    if (!concept) throw new NotFoundException('Concept not found');
+    await this.prisma.concept.delete({ where: { id: conceptId } });
+    return { deleted: true };
   }
 
   async userAction(_adminId: string, userId: string, payload: UserActionPayload): Promise<{ action: string; userId: string }> {
@@ -403,6 +941,74 @@ export class AdminService {
     }));
   }
 
+  async launchChallenge(adminId: string, payload: LaunchChallengePayload) {
+    const slug = normalizeTagSlug(payload.hashtag);
+    const name = toDisplayTag(payload.hashtag);
+    if (!slug || !name) {
+      throw new BadRequestException({
+        code: 'INVALID_HASHTAG',
+        message: 'Challenge hashtag is invalid',
+        field: 'hashtag',
+      });
+    }
+
+    const startsAt = payload.startsAt ? new Date(payload.startsAt) : new Date();
+    const endsAt = payload.endsAt ? new Date(payload.endsAt) : null;
+    if (Number.isNaN(startsAt.getTime())) {
+      throw new BadRequestException({
+        code: 'INVALID_START_DATE',
+        message: 'Challenge start date is invalid',
+        field: 'startsAt',
+      });
+    }
+    if (endsAt && (Number.isNaN(endsAt.getTime()) || endsAt <= startsAt)) {
+      throw new BadRequestException({
+        code: 'INVALID_END_DATE',
+        message: 'Challenge end date must be after the start date',
+        field: 'endsAt',
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const tag = await tx.contentTag.upsert({
+        where: { slug },
+        create: { name, slug },
+        update: { name },
+        select: { id: true, name: true, slug: true },
+      });
+
+      const isPinned = payload.isPinned ?? true;
+      if (isPinned) {
+        await tx.challenge.updateMany({
+          where: { isPinned: true },
+          data: { isPinned: false },
+        });
+      }
+
+      const challenge = await tx.challenge.create({
+        data: {
+          title: payload.title,
+          description: payload.description ?? '',
+          startsAt,
+          endsAt,
+          isPinned,
+          createdById: adminId,
+          tagId: tag.id,
+        },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          startsAt: true,
+          endsAt: true,
+          isPinned: true,
+        },
+      });
+
+      return { ...challenge, tag };
+    });
+  }
+
   // ── Franchises ──────────────────────────────────────────────────────────────
 
   async getFranchises() {
@@ -456,6 +1062,63 @@ export class AdminService {
     }));
   }
 
+  // ── Comment moderation queue ────────────────────────────────────────────────
+
+  async getFlaggedComments(cursor?: string) {
+    const comments = await this.prisma.contentComment.findMany({
+      where: {
+        isHidden: true,
+        isDeleted: false,
+        ...(cursor ? { createdAt: { lt: new Date(cursor) } } : {}),
+      },
+      orderBy: [{ reportCount: 'desc' }, { createdAt: 'desc' }],
+      take: 30,
+      select: {
+        id: true,
+        body: true,
+        hiddenReason: true,
+        reportCount: true,
+        createdAt: true,
+        user: { select: { id: true, name: true, avatarUrl: true } },
+        content: { select: { id: true, title: true } },
+        reports: {
+          take: 10,
+          select: { reason: true, createdAt: true, reporter: { select: { name: true } } },
+        },
+      },
+    });
+
+    const nextCursor = comments.length === 30
+      ? comments[comments.length - 1]?.createdAt.toISOString() ?? null
+      : null;
+
+    return { comments, nextCursor };
+  }
+
+  async restoreComment(commentId: string) {
+    const comment = await this.prisma.contentComment.findUnique({ where: { id: commentId } });
+    if (!comment) throw new NotFoundException('Comment not found');
+
+    await this.prisma.contentComment.update({
+      where: { id: commentId },
+      data: { isHidden: false, hiddenReason: null },
+    });
+
+    return { restored: commentId };
+  }
+
+  async deleteCommentByAdmin(commentId: string) {
+    const comment = await this.prisma.contentComment.findUnique({ where: { id: commentId } });
+    if (!comment) throw new NotFoundException('Comment not found');
+
+    await this.prisma.contentComment.update({
+      where: { id: commentId },
+      data: { isDeleted: true, isHidden: true, hiddenReason: 'MODERATOR', body: '[removed by moderator]' },
+    });
+
+    return { deleted: commentId };
+  }
+
   async getEngagementAnalytics(days: number) {
     const [dauRows, topSearches] = await Promise.all([
       this.clickhouse.queryDailyActiveUsers(days),
@@ -471,4 +1134,61 @@ export class AdminService {
       })),
     };
   }
+}
+
+function normalizeTagSlug(value: string): string {
+  return value
+    .trim()
+    .replace(/^#/, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+}
+
+function toDisplayTag(value: string): string {
+  return value
+    .trim()
+    .replace(/^#/, '')
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+}
+
+function normalizeSlug(value: string): string {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  if (!slug) {
+    throw new BadRequestException({
+      code: 'INVALID_SLUG',
+      message: 'Course slug is invalid',
+      field: 'slug',
+    });
+  }
+  return slug;
+}
+
+async function uniqueCreatorDisplayName(
+  tx: Prisma.TransactionClient,
+  name: string,
+): Promise<string> {
+  const base = name
+    .trim()
+    .replace(/[^a-zA-Z0-9 ]+/g, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 40) || 'Creator';
+
+  let candidate = base;
+  let suffix = 2;
+  while (await tx.creatorProfile.findUnique({ where: { displayName: candidate }, select: { id: true } })) {
+    candidate = `${base} ${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
 }

@@ -1,3 +1,6 @@
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
@@ -8,12 +11,10 @@ import {
   ActivityIndicator,
   Dimensions,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { Video, ResizeMode, type AVPlaybackStatus } from 'expo-av';
-import { useAuthStore } from '@/lib/store';
-import { learnerApi } from '@/lib/learner';
+
 import { VideoThumbnail } from '@/components/VideoThumbnail';
+import { learnerApi } from '@/lib/learner';
+import { useAuthStore } from '@/lib/store';
 
 type Tab = 'overview' | 'assessment';
 

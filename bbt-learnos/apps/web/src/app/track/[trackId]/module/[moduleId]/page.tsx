@@ -1,10 +1,11 @@
 'use client';
+import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+
 import { learnerApi } from '@/lib/learner';
+import { useAuthStore } from '@/lib/store';
 
 type Tab = 'overview' | 'resources' | 'assessment' | 'peers';
 
@@ -20,14 +21,15 @@ interface ActiveContent {
 
 export default function ModulePage({ params }: Props): React.JSX.Element {
   const router = useRouter();
-  const { accessToken } = useAuthStore();
+  const { accessToken, hasHydrated } = useAuthStore();
   const [tab, setTab] = useState<Tab>('overview');
   const [assessmentUnlocked, setAssessmentUnlocked] = useState(false);
   const [activeContent, setActiveContent] = useState<ActiveContent | null>(null);
 
   useEffect(() => {
+    if (!hasHydrated) return;
     if (!accessToken) router.push(`/auth/login?returnUrl=/track/${params.trackId}/module/${params.moduleId}`);
-  }, [accessToken, router, params.trackId, params.moduleId]);
+  }, [accessToken, hasHydrated, router, params.trackId, params.moduleId]);
 
   const { data: mod, isLoading, error } = useQuery({
     queryKey: ['module', params.trackId, params.moduleId],
@@ -51,7 +53,7 @@ export default function ModulePage({ params }: Props): React.JSX.Element {
   const handleVideoComplete = useCallback((): void => {
     setAssessmentUnlocked(true);
     if (activeContent?.id && accessToken) {
-      void learnerApi.trackEvent(accessToken, activeContent.id, 'completed');
+      void learnerApi.trackEvent(accessToken, activeContent.id, 'complete');
     }
   }, [activeContent, accessToken]);
 
@@ -61,11 +63,11 @@ export default function ModulePage({ params }: Props): React.JSX.Element {
     }
   }, [activeContent, accessToken]);
 
-  if (!accessToken) return <></>;
+  if (!hasHydrated || !accessToken) return <></>;
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-navy-950 p-8">
+      <div className="min-h-screen bbt-screen p-8">
         <div className="mx-auto max-w-4xl space-y-4">
           <div className="aspect-video bg-navy-800 rounded-2xl animate-pulse" />
           <div className="h-10 bg-navy-800 rounded-xl animate-pulse" />
@@ -77,7 +79,7 @@ export default function ModulePage({ params }: Props): React.JSX.Element {
 
   if (error || !mod) {
     return (
-      <div className="min-h-screen bg-navy-950 flex items-center justify-center">
+      <div className="min-h-screen bbt-screen flex items-center justify-center">
         <div className="text-center space-y-4">
           <p className="text-navy-400">Module not found or locked.</p>
           <Link href={`/track/${params.trackId}`} className="text-orange-400 hover:underline">
@@ -96,7 +98,7 @@ export default function ModulePage({ params }: Props): React.JSX.Element {
   ];
 
   return (
-    <div className="min-h-screen bg-navy-950">
+    <div className="min-h-screen bbt-screen">
       {/* Breadcrumb */}
       <div className="bg-navy-900 border-b border-navy-800 px-4 py-3">
         <nav className="mx-auto max-w-4xl flex items-center gap-2 text-xs font-mono text-navy-400" aria-label="Breadcrumb">
@@ -198,6 +200,41 @@ export default function ModulePage({ params }: Props): React.JSX.Element {
           <div className="pt-6">
             {tab === 'overview' && (
               <div id="panel-overview" role="tabpanel" className="space-y-6">
+                <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+                  <section className="rounded-2xl border border-navy-700 bg-navy-800 p-4">
+                    <p className="text-xs font-mono uppercase tracking-wider text-orange-400">Hands-on task</p>
+                    <h2 className="mt-2 text-lg font-semibold text-white">Apply the concept before moving on</h2>
+                    <p className="mt-2 text-sm text-navy-300">
+                      Complete the lesson video, read the concepts below, then use the task panel to check your understanding.
+                    </p>
+                    <div className="mt-4 rounded-xl border border-navy-700 bg-navy-950 p-3 font-mono text-xs text-navy-300">
+                      <p>1. Summarize the key idea in one sentence.</p>
+                      <p>2. Identify where this appears in a real project.</p>
+                      <p>3. Run the check and request a hint if you are stuck.</p>
+                    </div>
+                  </section>
+                  <aside className="rounded-2xl border border-navy-700 bg-navy-800 p-4">
+                    <p className="text-xs font-mono uppercase tracking-wider text-indigo-300">Instant feedback</p>
+                    <div className="mt-4 space-y-3">
+                      <button
+                        type="button"
+                        className="w-full rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
+                      >
+                        Run Check
+                      </button>
+                      <button
+                        type="button"
+                        className="w-full rounded-lg border border-navy-600 px-4 py-2 text-sm font-semibold text-white hover:border-orange-500"
+                      >
+                        Ask AI Hint
+                      </button>
+                      <p className="text-xs text-navy-400">
+                        AI hints and mentor escalation are staged here; failed attempts will feed the autograder slice next.
+                      </p>
+                    </div>
+                  </aside>
+                </div>
+
                 {mod.concepts.length > 0 && (
                   <div>
                     <h2 className="font-display text-lg text-white mb-3">Concepts Covered</h2>

@@ -1,9 +1,10 @@
 'use client';
-import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+import { useState } from 'react';
+
 import { adminApi } from '@/lib/admin';
 import type { TierReviewItem } from '@/lib/admin';
+import { useAuthStore } from '@/lib/store';
 
 type Decision = 'APPROVE' | 'REJECT' | 'REQUEST_MORE';
 

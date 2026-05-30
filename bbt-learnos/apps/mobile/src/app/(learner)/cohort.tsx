@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import React from 'react';
 import {
   View,
@@ -7,9 +8,9 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+
 import { learnerApi, type CohortMember } from '@/lib/learner';
+import { useAuthStore } from '@/lib/store';
 
 function MemberRow({ member, rank }: { member: CohortMember; rank: number }): React.JSX.Element {
   const isTop = rank <= 3;

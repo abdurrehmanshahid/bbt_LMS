@@ -1,11 +1,15 @@
 'use client';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useCallback } from 'react';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+import React, { useEffect, useRef, useCallback, useState } from 'react';
+
+import { AdSlot } from '@/components/AdSlot';
+import { getTaggedShorts } from '@/lib/api';
+
 import { learnerApi } from '@/lib/learner';
 import type { FeedItem } from '@/lib/learner';
+import { useAuthStore } from '@/lib/store';
 
 const BUCKET_COLOR: Record<string, string> = {
   PROGRESSION: 'text-orange-500',
@@ -21,13 +25,21 @@ const TYPE_LABEL: Record<string, string> = {
   RESOURCE: 'Resource',
 };
 
-function FeedCard({ item }: { item: FeedItem }) {
+function routeForNonLearner(role: string): string | null {
+  if (role === 'ADMIN') return '/admin/health';
+  if (role === 'CREATOR') return '/creator/dashboard';
+  if (role === 'EMPLOYER') return '/employer/talent';
+  if (role === 'FRANCHISE_OWNER') return '/franchise/dashboard';
+  return null;
+}
+
+function FeedCard({ item }: { item: FeedItem | { id: string; type: string; title: string; thumbnailUrl: string | null; duration: number | null; viewCount: number; creator: { name: string; avatarUrl: string | null }; bucket?: string; track?: { title: string; slug: string } } }) {
   const initials = item.creator.name.slice(0, 2).toUpperCase();
+  const bucket = (item as FeedItem).bucket ?? 'PROGRESSION';
   return (
-    <article className="group flex flex-col rounded-2xl border border-navy-700 bg-navy-800 overflow-hidden hover:shadow-lg hover:shadow-navy-900/30 transition-shadow">
+    <article className="bbt-card group flex flex-col overflow-hidden transition-transform hover:-translate-y-0.5">
       <div className="aspect-video bg-navy-900 relative">
         {item.thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img src={item.thumbnailUrl} alt={item.title} className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full items-center justify-center text-navy-600">
@@ -41,15 +53,14 @@ function FeedCard({ item }: { item: FeedItem }) {
             {Math.floor(item.duration / 60)}:{String(item.duration % 60).padStart(2, '0')}
           </span>
         )}
-        <span className={`absolute top-2 left-2 text-xs font-mono ${BUCKET_COLOR[item.bucket] ?? 'text-navy-400'}`}>
-          {item.bucket.charAt(0) + item.bucket.slice(1).toLowerCase()}
+        <span className={`absolute top-2 left-2 text-xs font-mono ${BUCKET_COLOR[bucket] ?? 'text-navy-400'}`}>
+          {bucket.charAt(0) + bucket.slice(1).toLowerCase()}
         </span>
       </div>
       <div className="p-4 flex-1 flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <div className="h-6 w-6 shrink-0 rounded-full bg-indigo-600 flex items-center justify-center text-xs text-white font-mono">
             {item.creator.avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
               <img src={item.creator.avatarUrl} alt={item.creator.name} className="h-full w-full rounded-full object-cover" />
             ) : initials}
           </div>
@@ -83,16 +94,29 @@ function FeedSkeleton() {
 
 export default function DashboardPage(): React.JSX.Element {
   const router = useRouter();
-  const { user, accessToken } = useAuthStore();
+  const { user, accessToken, hasHydrated } = useAuthStore();
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const [verifyBannerDismissed, setVerifyBannerDismissed] = useState(false);
+  const [feedTab, setFeedTab] = useState<'for_you' | 'following' | string>('for_you');
 
   useEffect(() => {
+    if (!hasHydrated) return;
     if (!accessToken) router.push('/auth/login?returnUrl=/dashboard');
-  }, [accessToken, router]);
+    else if (user) {
+      const route = routeForNonLearner(user.role);
+      if (route) router.replace(route);
+    }
+  }, [accessToken, hasHydrated, router, user]);
 
   const { data: dashboard } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => learnerApi.getDashboard(accessToken!),
+    enabled: !!accessToken,
+  });
+
+  const { data: enrollments } = useQuery({
+    queryKey: ['enrollments'],
+    queryFn: () => learnerApi.getEnrollments(accessToken!),
     enabled: !!accessToken,
   });
 
@@ -104,17 +128,46 @@ export default function DashboardPage(): React.JSX.Element {
     isLoading: feedLoading,
   } = useInfiniteQuery({
     queryKey: ['feed'],
-    queryFn: ({ pageParam }) => learnerApi.getFeed(accessToken!, pageParam as string | undefined),
+    queryFn: ({ pageParam }) => learnerApi.getFeed(accessToken!, pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
-    enabled: !!accessToken,
+    enabled: !!accessToken && feedTab === 'for_you',
+  });
+
+  const {
+    data: socialData,
+    fetchNextPage: fetchNextSocial,
+    hasNextPage: hasNextSocial,
+    isFetchingNextPage: fetchingSocial,
+    isLoading: socialLoading,
+  } = useInfiniteQuery({
+    queryKey: ['social-feed'],
+    queryFn: ({ pageParam }) => learnerApi.getSocialFeed(accessToken!, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: !!accessToken && feedTab === 'following',
+  });
+
+  const {
+    data: trackFeedData,
+    fetchNextPage: fetchNextTrack,
+    hasNextPage: hasNextTrack,
+    isFetchingNextPage: fetchingTrack,
+    isLoading: trackFeedLoading,
+  } = useInfiniteQuery({
+    queryKey: ['track-feed', feedTab],
+    queryFn: ({ pageParam }) => getTaggedShorts(feedTab, typeof pageParam === 'string' ? pageParam : undefined),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: !!accessToken && feedTab !== 'for_you' && feedTab !== 'following',
   });
 
   const onIntersect = useCallback((entries: IntersectionObserverEntry[]) => {
-    if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
-      void fetchNextPage();
-    }
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+    if (!entries[0]?.isIntersecting) return;
+    if (feedTab === 'for_you' && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+    else if (feedTab === 'following' && hasNextSocial && !fetchingSocial) void fetchNextSocial();
+    else if (hasNextTrack && !fetchingTrack) void fetchNextTrack();
+  }, [feedTab, hasNextPage, isFetchingNextPage, fetchNextPage, hasNextSocial, fetchingSocial, fetchNextSocial, hasNextTrack, fetchingTrack, fetchNextTrack]);
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -124,23 +177,50 @@ export default function DashboardPage(): React.JSX.Element {
     return () => obs.disconnect();
   }, [onIntersect]);
 
-  if (!accessToken) return <></>;
+  if (!hasHydrated || !accessToken || (user && routeForNonLearner(user.role))) return <></>;
 
-  const allFeedItems = feedData?.pages.flatMap((p) => p.items) ?? [];
+  const forYouItems = feedData?.pages.flatMap((p) => p.items) ?? [];
+  const followingItems = socialData?.pages.flatMap((p) => p.items) ?? [];
+  const trackItems = trackFeedData?.pages.flatMap((p) => p.items) ?? [];
+  const allFeedItems = feedTab === 'for_you' ? forYouItems : feedTab === 'following' ? followingItems : trackItems;
+  const isFeedLoading = feedTab === 'for_you' ? feedLoading : feedTab === 'following' ? socialLoading : trackFeedLoading;
+  const isLoadingMore = feedTab === 'for_you' ? isFetchingNextPage : feedTab === 'following' ? fetchingSocial : fetchingTrack;
+
   const progress = dashboard?.trackProgress;
   const cohort = dashboard?.cohort;
+  const activeEnrollments = enrollments?.filter((e) => e.status === 'ACTIVE') ?? [];
+
+  const showVerifyBanner = !verifyBannerDismissed && user?.emailVerified === false;
 
   return (
-    <div className="min-h-screen bg-navy-950">
+    <div className="min-h-screen bbt-screen">
+      {showVerifyBanner && (
+        <div className="flex items-center justify-between gap-4 bg-indigo-900/70 px-4 py-2.5 text-sm text-indigo-200 border-b border-indigo-700/60">
+          <span>
+            <span className="font-semibold text-white">Verify your email</span>
+            {' '}— check your inbox for a link from BBT LearnOS to unlock all features.
+          </span>
+          <button
+            type="button"
+            onClick={() => setVerifyBannerDismissed(true)}
+            className="shrink-0 text-indigo-400 hover:text-white transition-colors"
+            aria-label="Dismiss"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
       {/* Top bar */}
-      <div className="bg-navy-900 border-b border-navy-800 px-4 py-3">
+      <div className="border-b border-white/10 bg-[#07071a]/80 px-4 py-3 backdrop-blur-xl">
         <div className="mx-auto max-w-7xl flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="font-display text-white text-lg">
               {user ? `Hi, ${user.name.split(' ')[0]}` : 'Dashboard'}
             </span>
             {(dashboard?.streak ?? 0) > 0 && (
-              <span className="flex items-center gap-1 rounded-full bg-orange-500/20 border border-orange-500/40 px-2.5 py-0.5 text-xs font-mono text-orange-400">
+              <span className="bbt-chip bbt-chip-active px-2.5 py-1">
                 🔥 {dashboard?.streak}d streak
               </span>
             )}
@@ -148,7 +228,7 @@ export default function DashboardPage(): React.JSX.Element {
           <button
             type="button"
             aria-label="Notifications"
-            className="relative rounded-lg p-2 text-navy-400 hover:text-white hover:bg-navy-800 transition-colors"
+            className="bbt-button-secondary relative h-10 w-10 p-0 text-white/55 hover:text-white"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
@@ -166,8 +246,8 @@ export default function DashboardPage(): React.JSX.Element {
           {/* Left — Track progress */}
           <aside className="space-y-4">
             {progress ? (
-              <div className="rounded-2xl border border-navy-700 bg-navy-800 p-5">
-                <p className="text-xs font-mono text-orange-500 uppercase tracking-wider mb-3">Your Track</p>
+              <div className="bbt-card p-5">
+                <p className="bbt-kicker mb-3">Your Track</p>
                 <div className="flex items-center gap-3 mb-4">
                   <span className="text-2xl" role="img" aria-label={progress.trackTitle}>{progress.trackIcon}</span>
                   <div>
@@ -182,14 +262,14 @@ export default function DashboardPage(): React.JSX.Element {
                     <span>{progress.completionPercent}%</span>
                   </div>
                   <div
-                    className="h-2 rounded-full bg-navy-700 overflow-hidden"
+                    className="bbt-progress"
                     role="progressbar"
                     aria-valuenow={progress.completionPercent}
                     aria-valuemin={0}
                     aria-valuemax={100}
                   >
                     <div
-                      className="h-full rounded-full bg-orange-500 transition-all"
+                      className="bbt-progress-fill transition-all"
                       style={{ width: `${progress.completionPercent}%` }}
                     />
                   </div>
@@ -197,17 +277,17 @@ export default function DashboardPage(): React.JSX.Element {
                 <p className="text-xs text-navy-400 mb-4">{progress.nextStep}</p>
                 <Link
                   href={`/track/${progress.trackId}`}
-                  className="block text-center rounded-lg bg-orange-500 py-2 text-xs font-semibold text-white hover:bg-orange-600 transition-colors"
+                  className="bbt-button-primary block py-2 text-center text-xs"
                 >
                   Continue Learning →
                 </Link>
               </div>
             ) : (
-              <div className="rounded-2xl border border-navy-700 bg-navy-800 p-5 text-center">
+              <div className="bbt-card p-5 text-center">
                 <p className="text-sm text-navy-400 mb-4">You haven&apos;t enrolled in a track yet.</p>
                 <Link
                   href="/tracks"
-                  className="block text-center rounded-lg bg-orange-500 py-2 text-xs font-semibold text-white hover:bg-orange-600 transition-colors"
+                  className="bbt-button-primary block py-2 text-center text-xs"
                 >
                   Browse Tracks →
                 </Link>
@@ -215,7 +295,7 @@ export default function DashboardPage(): React.JSX.Element {
             )}
 
             {/* Quick links */}
-            <div className="rounded-2xl border border-navy-700 bg-navy-800 p-4 space-y-1">
+            <div className="bbt-card p-4 space-y-1">
               {[
                 { href: '/learner/portfolio', label: 'My Portfolio' },
                 { href: '/jobs', label: 'Job Board' },
@@ -235,18 +315,46 @@ export default function DashboardPage(): React.JSX.Element {
 
           {/* Center — Feed */}
           <div>
-            <h2 className="font-display text-xl text-white mb-5">Your Feed</h2>
-            {feedLoading ? (
+            {/* Feed tabs */}
+            <div className="flex gap-1.5 mb-5 overflow-x-auto pb-1 scrollbar-none">
+              {[
+                { key: 'for_you', label: 'For You' },
+                { key: 'following', label: 'Following' },
+                ...activeEnrollments.map((e) => ({ key: e.track.slug, label: `${e.track.icon} ${e.track.title}` })),
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setFeedTab(key)}
+                  className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-mono transition-colors ${
+                    feedTab === key
+                      ? 'bg-orange-500 text-white'
+                      : 'bg-navy-800 text-navy-300 hover:bg-navy-700 hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {isFeedLoading ? (
               <FeedSkeleton />
             ) : allFeedItems.length > 0 ? (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  {allFeedItems.map((item) => (
-                    <FeedCard key={item.id} item={item} />
+                  {allFeedItems.map((item, idx) => (
+                    <React.Fragment key={item.id}>
+                      <FeedCard item={item} />
+                      {(idx + 1) % 5 === 0 && (
+                        <div className="sm:col-span-2">
+                          <AdSlot slot="feed-inline" className="w-full" />
+                        </div>
+                      )}
+                    </React.Fragment>
                   ))}
                 </div>
                 <div ref={sentinelRef} className="h-10 flex items-center justify-center mt-4">
-                  {isFetchingNextPage && (
+                  {isLoadingMore && (
                     <svg className="h-5 w-5 animate-spin text-orange-500" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -255,8 +363,14 @@ export default function DashboardPage(): React.JSX.Element {
                 </div>
               </>
             ) : (
-              <div className="rounded-2xl border border-navy-700 bg-navy-800 p-12 text-center">
-                <p className="text-navy-400">Your track content is being set up — check back soon.</p>
+              <div className="bbt-card p-12 text-center">
+                {feedTab === 'following' ? (
+                  <p className="text-navy-400">Follow some creators to see their content here.</p>
+                ) : feedTab === 'for_you' ? (
+                  <p className="text-navy-400">Your track content is being set up — check back soon.</p>
+                ) : (
+                  <p className="text-navy-400">No reels yet for this track. Check back soon.</p>
+                )}
               </div>
             )}
           </div>
@@ -264,8 +378,8 @@ export default function DashboardPage(): React.JSX.Element {
           {/* Right — Cohort + sessions */}
           <aside className="space-y-4">
             {cohort ? (
-              <div className="rounded-2xl border border-navy-700 bg-navy-800 p-5">
-                <p className="text-xs font-mono text-indigo-400 uppercase tracking-wider mb-3">Your Cohort</p>
+              <div className="bbt-card p-5">
+                <p className="bbt-kicker mb-3">Your Cohort</p>
                 <p className="font-semibold text-white text-sm mb-1">{cohort.name}</p>
                 <p className="text-xs text-navy-400 mb-4">{cohort.memberCount} members</p>
                 <div className="space-y-2">
@@ -283,15 +397,15 @@ export default function DashboardPage(): React.JSX.Element {
                 </div>
               </div>
             ) : (
-              <div className="rounded-2xl border border-navy-700 bg-navy-800 p-5 text-center">
+              <div className="bbt-card p-5 text-center">
                 <p className="text-xs text-navy-500 font-mono uppercase tracking-wider mb-2">Cohort</p>
                 <p className="text-sm text-navy-400">Enroll in a track to join a cohort.</p>
               </div>
             )}
 
             {(dashboard?.upcomingSessions.length ?? 0) > 0 && (
-              <div className="rounded-2xl border border-navy-700 bg-navy-800 p-5">
-                <p className="text-xs font-mono text-navy-400 uppercase tracking-wider mb-3">Upcoming Sessions</p>
+              <div className="bbt-card p-5">
+                <p className="bbt-kicker mb-3">Upcoming Sessions</p>
                 <div className="space-y-3">
                   {dashboard?.upcomingSessions.map((s) => (
                     <div key={s.id} className="rounded-lg bg-navy-700/50 p-3">

@@ -1,9 +1,10 @@
 'use client';
-import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+import { useEffect } from 'react';
+
 import { adminApi } from '@/lib/admin';
 import type { PlatformHealth } from '@/lib/admin';
+import { useAuthStore } from '@/lib/store';
 
 function Sparkline({ values }: { values: number[] }): React.JSX.Element {
   if (values.length < 2) return <svg className="h-8 w-20" />;

@@ -1,3 +1,4 @@
+import { useRouter, Link } from 'expo-router';
 import React, { useState } from 'react';
 import {
   View,
@@ -10,7 +11,7 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { useRouter, Link } from 'expo-router';
+
 import { post } from '@/lib/api';
 import { useAuthStore, type AuthUser } from '@/lib/store';
 

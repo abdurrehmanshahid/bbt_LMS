@@ -1,20 +1,19 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import {
-  RekognitionClient,
-  StartContentModerationCommand,
-  GetContentModerationCommand,
-  type ModerationLabel,
-} from '@aws-sdk/client-rekognition';
 import {
   ComprehendClient,
   DetectSentimentCommand,
   DetectToxicContentCommand,
   type ToxicContent,
 } from '@aws-sdk/client-comprehend';
+import {
+  RekognitionClient,
+  StartContentModerationCommand,
+  GetContentModerationCommand,
+  type ModerationLabel,
+} from '@aws-sdk/client-rekognition';
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 export interface AiModerationResult {
-  autoReject: boolean;
   flags: AiFlag[];
   confidence: number; // max confidence across all flags
   rawRekognition: ModerationLabel[];
@@ -29,8 +28,6 @@ export interface AiFlag {
   source: 'rekognition' | 'comprehend';
 }
 
-const AUTO_REJECT_THRESHOLD = 0.80;
-const AUTO_REJECT_CATEGORIES = new Set(['EXPLICIT', 'VIOLENCE', 'HATE_SPEECH']);
 
 // Rekognition label → our category
 const REKOGNITION_CATEGORY_MAP: Record<string, AiFlag['category']> = {
@@ -89,16 +86,11 @@ export class ModerationAiService {
       ? Math.max(...allFlags.map((f) => f.confidence))
       : 0;
 
-    const autoReject = allFlags.some(
-      (f) => AUTO_REJECT_CATEGORIES.has(f.category) && f.confidence >= AUTO_REJECT_THRESHOLD,
-    );
-
     this.logger.log(
-      `AI screen: assetId=${params.muxAssetId} flags=${allFlags.length} autoReject=${autoReject} maxConf=${maxConfidence.toFixed(2)}`,
+      `AI screen: assetId=${params.muxAssetId} flags=${allFlags.length} maxConf=${maxConfidence.toFixed(2)}`,
     );
 
     return {
-      autoReject,
       flags: allFlags,
       confidence: maxConfidence,
       rawRekognition: videoResult.labels,

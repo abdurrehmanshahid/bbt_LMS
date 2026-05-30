@@ -1,8 +1,9 @@
 'use client';
-import React, { useState, useCallback } from 'react';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+import React, { useState, useCallback } from 'react';
+
 import { searchTalent, requestContact, type TalentCard } from '@/lib/employer';
+import { useAuthStore } from '@/lib/store';
 
 const TRACKS = [
   'GenAI + Agentic AI',

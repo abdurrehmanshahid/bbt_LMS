@@ -1,13 +1,13 @@
+import { createClient, type ClickHouseClient } from '@clickhouse/client';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createClient, type ClickHouseClient } from '@clickhouse/client';
 
 export interface ContentEventRow {
   user_id: string;
   content_id: string;
   track_id: string;
   module_id: string;
-  event: 'play' | 'pause' | 'complete' | 'seek' | 'share' | 'save';
+  event: 'play' | 'pause' | 'complete' | 'seek' | 'share' | 'save' | 'reel_view' | 'reel_complete' | 'reel_share';
   position_seconds: number;
   duration_seconds: number;
 }

@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+
 import { PrismaService } from '../prisma/prisma.service';
+
 import { LtiService } from './lti.service';
 
 @Injectable()

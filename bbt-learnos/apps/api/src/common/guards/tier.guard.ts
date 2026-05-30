@@ -5,8 +5,9 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { MIN_TIER_KEY } from '../decorators/min-tier.decorator';
+
 import type { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+import { MIN_TIER_KEY } from '../decorators/min-tier.decorator';
 
 @Injectable()
 export class TierGuard implements CanActivate {

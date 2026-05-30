@@ -1,10 +1,11 @@
 'use client';
-import Link from 'next/link';
-import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/lib/store';
+import { useEffect } from 'react';
+
 import { assessmentApi } from '@/lib/assessment';
+import { useAuthStore } from '@/lib/store';
 
 const ABSORPTION_STATUS_LABEL: Record<string, string> = {
   INELIGIBLE: 'Not yet eligible',
@@ -39,7 +40,7 @@ export default function MyPortfolioPage(): React.JSX.Element {
   if (!accessToken) return <></>;
 
   return (
-    <div className="min-h-screen bg-navy-950">
+    <div className="min-h-screen bbt-screen">
       {/* Header */}
       <div className="bg-navy-900 border-b border-navy-800 px-4 py-6">
         <div className="mx-auto max-w-3xl flex items-center justify-between">

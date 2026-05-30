@@ -1,8 +1,9 @@
 'use client';
-import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+import React, { useState } from 'react';
+
 import { submitHireTeam } from '@/lib/employer';
+import { useAuthStore } from '@/lib/store';
 
 const ROLES = [
   'Full Stack',

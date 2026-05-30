@@ -1,4 +1,9 @@
-const API = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:4000/api';
+const API = normalizeApiBase(process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:4000/api');
+
+function normalizeApiBase(url: string): string {
+  const trimmed = url.replace(/\/$/, '');
+  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+}
 
 export interface AuthUser {
   id: string;
@@ -6,11 +11,21 @@ export interface AuthUser {
   email: string;
   role: string;
   avatarUrl: string | null;
+  emailVerified?: boolean;
 }
 
 export interface AuthResponse {
   accessToken: string;
   user: AuthUser;
+}
+
+function hasCode(value: unknown): value is { code: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'code' in value &&
+    typeof (value as Record<string, unknown>)['code'] === 'string'
+  );
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -20,9 +35,20 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     credentials: 'include',
     body: JSON.stringify(body),
   });
-  const data = await res.json() as { message?: string; error?: string } & T;
+  const data = await res.json() as { message?: unknown; error?: string; code?: string } & T;
   if (!res.ok) {
-    throw new Error((data as { message?: string }).message ?? 'Request failed');
+    const raw = data.message;
+    const msg =
+      typeof raw === 'string'
+        ? raw
+        : hasCode(raw)
+          ? raw.code
+          : typeof data.code === 'string'
+            ? data.code
+          : typeof raw === 'object'
+            ? JSON.stringify(raw)
+            : 'Request failed';
+    throw new Error(msg);
   }
   return data;
 }

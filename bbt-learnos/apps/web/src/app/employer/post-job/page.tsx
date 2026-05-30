@@ -1,9 +1,10 @@
 'use client';
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+import { useRouter } from 'next/navigation';
+import React, { useState } from 'react';
+
 import { postOpportunity } from '@/lib/employer';
+import { useAuthStore } from '@/lib/store';
 
 const TRACKS = [
   'GenAI + Agentic AI',
@@ -24,7 +25,7 @@ export default function PostJobPage(): React.JSX.Element {
   const [form, setForm] = useState({
     title: '',
     description: '',
-    track: TRACKS[0]!,
+    track: TRACKS[0],
     location: '',
     isRemote: false,
     type: 'full-time',

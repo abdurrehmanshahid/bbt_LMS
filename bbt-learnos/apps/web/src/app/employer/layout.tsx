@@ -1,7 +1,8 @@
 'use client';
-import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import React, { useEffect } from 'react';
+
 import { useAuthStore } from '@/lib/store';
 
 const NAV = [
@@ -43,14 +44,14 @@ export default function EmployerLayout({ children }: { children: React.ReactNode
   if (!user || user.role !== 'EMPLOYER') return <div className="min-h-screen" />;
 
   return (
-    <div className="flex min-h-screen bg-[#f8f9fc]">
+    <div className="flex min-h-screen bbt-screen">
       {/* Sidebar */}
-      <aside className="hidden lg:flex w-60 flex-col fixed inset-y-0 bg-[#0d0d2e] text-white">
-        <div className="px-6 py-5 border-b border-white/10">
+      <aside className="hidden lg:flex w-60 flex-col fixed inset-y-0 bbt-sidebar">
+        <div className="px-6 py-5 border-b border-[var(--bbt-border)]">
           <span className="text-sm font-semibold text-[#F7941D] tracking-wide uppercase">
             talent.bigbinarytech.com
           </span>
-          <p className="text-xs text-white/50 mt-0.5">Employer Portal</p>
+          <p className="text-xs bbt-muted mt-0.5">Employer Portal</p>
         </div>
         <nav className="flex-1 py-4 space-y-1 px-3">
           {NAV.map((item) => {
@@ -60,7 +61,7 @@ export default function EmployerLayout({ children }: { children: React.ReactNode
                 key={item.href}
                 href={item.href}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
-                  active ? 'bg-[#2E3192] text-white font-medium' : 'text-white/60 hover:bg-white/5'
+                  active ? 'bbt-chip-active font-medium' : 'bbt-nav-pill'
                 }`}
               >
                 <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
@@ -71,21 +72,21 @@ export default function EmployerLayout({ children }: { children: React.ReactNode
             );
           })}
         </nav>
-        <div className="px-5 py-4 border-t border-white/10 text-xs text-white/40">
+        <div className="px-5 py-4 border-t border-[var(--bbt-border)] text-xs bbt-muted">
           {user.name}
         </div>
       </aside>
 
       {/* Mobile top nav */}
-      <div className="lg:hidden fixed top-0 inset-x-0 z-10 bg-[#0d0d2e] flex items-center gap-2 px-4 py-3 overflow-x-auto">
+      <div className="lg:hidden fixed top-0 inset-x-0 z-10 bbt-sidebar flex items-center gap-2 px-4 py-3 overflow-x-auto">
         {NAV.map((item) => (
           <Link
             key={item.href}
             href={item.href}
             className={`whitespace-nowrap text-xs px-3 py-1.5 rounded-full ${
               pathname.startsWith(item.href)
-                ? 'bg-[#2E3192] text-white'
-                : 'text-white/60 border border-white/20'
+                ? 'bbt-chip-active'
+                : 'bbt-nav-pill border border-[var(--bbt-border)]'
             }`}
           >
             {item.label}

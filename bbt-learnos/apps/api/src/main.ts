@@ -1,7 +1,8 @@
 import './instrument';
-import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
 import cookieParser = require('cookie-parser');
+
 import { AppModule } from './app.module';
 import { SentryExceptionFilter } from './common/filters/sentry-exception.filter';
 import { DatadogInterceptor } from './common/interceptors/datadog.interceptor';
@@ -25,7 +26,7 @@ async function bootstrap(): Promise<void> {
   );
 
   app.enableCors({
-    origin: process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3000',
+    origin: process.env['FRONTEND_URL'] ?? 'http://localhost:3000',
     credentials: true,
   });
 

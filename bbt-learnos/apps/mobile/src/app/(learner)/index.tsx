@@ -1,4 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { Video, ResizeMode } from 'expo-av';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,64 +10,84 @@ import {
   ActivityIndicator,
   Image,
   RefreshControl,
+  useWindowDimensions,
+  type ViewToken,
 } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useInfiniteQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
-import { learnerApi, type FeedItem } from '@/lib/learner';
-import { VideoThumbnail } from '@/components/VideoThumbnail';
 
-function FeedCard({ item }: { item: FeedItem }): React.JSX.Element {
-  const router = useRouter();
-  const mins = Math.round(item.durationSeconds / 60);
+import { learnerApi, type FeedItem } from '@/lib/learner';
+import { useAuthStore } from '@/lib/store';
+
+function muxUrl(playbackId: string): string {
+  return `https://stream.mux.com/${playbackId}.m3u8`;
+}
+
+function ReelItem({
+  item,
+  height,
+  active,
+  muted,
+  onToggleMuted,
+}: {
+  item: FeedItem;
+  height: number;
+  active: boolean;
+  muted: boolean;
+  onToggleMuted: () => void;
+}): React.JSX.Element {
+  const minutes = Math.max(1, Math.round(item.durationSeconds / 60));
 
   return (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => router.push(`/(learner)/module/${item.id}`)}
-      activeOpacity={0.85}
-    >
-      {item.thumbnailUrl ? (
-        <Image source={{ uri: item.thumbnailUrl }} style={styles.thumb} resizeMode="cover" />
+    <View style={[styles.reel, { height }]}>
+      {item.muxPlaybackId ? (
+        <Video
+          source={{ uri: muxUrl(item.muxPlaybackId) }}
+          style={styles.media}
+          resizeMode={ResizeMode.COVER}
+          shouldPlay={active}
+          isLooping
+          isMuted={muted}
+        />
+      ) : item.thumbnailUrl ? (
+        <Image source={{ uri: item.thumbnailUrl }} style={styles.media} resizeMode="cover" />
       ) : (
-        <View style={[styles.thumb, styles.thumbPlaceholder]}>
-          <VideoThumbnail
-            title={item.title}
-            track={item.track}
-            creatorName={item.creatorName}
-            durationLabel={`${mins} min`}
-            compact
-          />
+        <View style={[styles.media, styles.placeholder]}>
+          <Text style={styles.placeholderText}>{item.track}</Text>
         </View>
       )}
-      {item.watched && (
-        <View style={styles.watchedBadge}>
-          <Text style={styles.watchedText}>✓</Text>
-        </View>
-      )}
-      {item.completionRate > 0 && item.completionRate < 1 && (
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${item.completionRate * 100}%` as unknown as number }]} />
-        </View>
-      )}
-      <View style={styles.cardBody}>
-        <Text style={styles.cardTrack}>{item.track}</Text>
-        <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
-        <View style={styles.cardMeta}>
-          <Text style={styles.cardMetaText}>{item.creatorName}</Text>
-          <Text style={styles.cardMetaDot}>·</Text>
-          <Text style={styles.cardMetaText}>{mins} min</Text>
-          <Text style={styles.cardMetaDot}>·</Text>
-          <Text style={styles.cardType}>{item.type}</Text>
+
+      <View style={styles.scrim} />
+
+      <View style={styles.copy}>
+        <Text style={styles.track}>{item.track}</Text>
+        <Text style={styles.title} numberOfLines={3}>{item.title}</Text>
+        <Text style={styles.creator}>{item.creatorName}</Text>
+        <Text style={styles.meta}>{minutes} min lesson</Text>
+      </View>
+
+      <View style={styles.actions}>
+        <TouchableOpacity style={styles.actionButton} onPress={onToggleMuted} accessibilityRole="button" accessibilityLabel={muted ? 'Unmute reel' : 'Mute reel'}>
+          <Text style={styles.actionText}>{muted ? 'M' : 'S'}</Text>
+        </TouchableOpacity>
+        <View style={styles.actionPill}>
+          <Text style={styles.actionText}>{item.type.toUpperCase()}</Text>
         </View>
       </View>
-    </TouchableOpacity>
+    </View>
   );
 }
 
 export default function FeedScreen(): React.JSX.Element {
-  const { accessToken, user } = useAuthStore();
+  const { accessToken } = useAuthStore();
+  const { height } = useWindowDimensions();
   const [refreshing, setRefreshing] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [muted, setMuted] = useState(true);
+
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 80 });
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    const first = viewableItems[0]?.item as FeedItem | undefined;
+    if (first) setActiveId(first.id);
+  });
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, refetch } =
     useInfiniteQuery({
@@ -95,24 +117,31 @@ export default function FeedScreen(): React.JSX.Element {
 
   return (
     <View style={styles.container}>
-      <View style={styles.topBar}>
-        <Text style={styles.greeting}>Hey, {user?.name.split(' ')[0]} 👋</Text>
-        <Text style={styles.subGreet}>Keep going — consistency is the edge.</Text>
-      </View>
-
       <FlatList
         data={allItems}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <FeedCard item={item} />}
-        contentContainerStyle={styles.list}
+        renderItem={({ item, index }) => (
+          <ReelItem
+            item={item}
+            height={height}
+            active={activeId === item.id || (activeId === null && index === 0)}
+            muted={muted}
+            onToggleMuted={() => setMuted((value) => !value)}
+          />
+        )}
+        pagingEnabled
+        snapToAlignment="start"
+        decelerationRate="fast"
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor="#F7941D" />}
         onEndReached={() => { if (hasNextPage && !isFetchingNextPage) void fetchNextPage(); }}
-        onEndReachedThreshold={0.4}
+        onEndReachedThreshold={0.6}
+        viewabilityConfig={viewabilityConfig.current}
+        onViewableItemsChanged={onViewableItemsChanged.current}
         ListFooterComponent={isFetchingNextPage ? <ActivityIndicator color="#F7941D" style={styles.footerSpinner} /> : null}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>No content yet. Enroll in a track to get started.</Text>
+          <View style={[styles.empty, { height }]}>
+            <Text style={styles.emptyText}>No reels yet. Enroll in a track to get started.</Text>
           </View>
         }
       />
@@ -123,35 +152,33 @@ export default function FeedScreen(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d0d2e' },
   center: { flex: 1, backgroundColor: '#0d0d2e', alignItems: 'center', justifyContent: 'center' },
-  topBar: { paddingHorizontal: 20, paddingTop: 56, paddingBottom: 16 },
-  greeting: { fontSize: 22, fontWeight: '700', color: '#fff' },
-  subGreet: { fontSize: 13, color: '#8888bb', marginTop: 2 },
-  list: { paddingHorizontal: 16, paddingBottom: 24 },
-  card: { backgroundColor: '#1a1a3e', borderRadius: 16, marginBottom: 14, overflow: 'hidden' },
-  thumb: { width: '100%', height: 160 },
-  thumbPlaceholder: { backgroundColor: '#12153a' },
-  watchedBadge: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: '#22c55e',
-    borderRadius: 12,
-    width: 24,
-    height: 24,
+  reel: { width: '100%', backgroundColor: '#050516' },
+  media: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+  placeholder: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#12153a' },
+  placeholderText: { color: '#F7941D', fontSize: 13, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase' },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(5,5,22,0.28)' },
+  copy: { position: 'absolute', left: 20, right: 92, bottom: 92 },
+  track: { color: '#F7941D', fontSize: 12, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 },
+  title: { color: '#fff', fontSize: 30, fontWeight: '800', lineHeight: 34 },
+  creator: { color: '#fff', fontSize: 14, fontWeight: '700', marginTop: 12 },
+  meta: { color: '#c7c7df', fontSize: 12, marginTop: 4 },
+  actions: { position: 'absolute', right: 16, bottom: 96, alignItems: 'center', gap: 12 },
+  actionButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  watchedText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  progressBar: { height: 3, backgroundColor: '#2a2a5e' },
-  progressFill: { height: '100%', backgroundColor: '#F7941D' },
-  cardBody: { padding: 14 },
-  cardTrack: { fontSize: 11, fontWeight: '700', color: '#F7941D', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
-  cardTitle: { fontSize: 15, fontWeight: '600', color: '#fff', lineHeight: 21, marginBottom: 8 },
-  cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  cardMetaText: { fontSize: 12, color: '#8888bb' },
-  cardMetaDot: { color: '#3a3a6e', fontSize: 12 },
-  cardType: { fontSize: 11, color: '#6666aa', textTransform: 'uppercase' },
-  footerSpinner: { paddingVertical: 20 },
-  empty: { paddingVertical: 60, alignItems: 'center' },
-  emptyText: { color: '#5555aa', fontSize: 14, textAlign: 'center', paddingHorizontal: 40 },
+  actionPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  actionText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  footerSpinner: { paddingVertical: 20, backgroundColor: '#0d0d2e' },
+  empty: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 36 },
+  emptyText: { color: '#8888bb', fontSize: 14, textAlign: 'center' },
 });

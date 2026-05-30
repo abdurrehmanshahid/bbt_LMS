@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import React, { useEffect, useState } from 'react';
 
 const NAV = [
-  { href: '/franchise/dashboard', label: '📊 Dashboard' },
-  { href: '/franchise/learners',  label: '👥 Learners' },
-  { href: '/franchise/compliance', label: '✅ Compliance' },
+  { href: '/franchise/dashboard', label: 'Dashboard' },
+  { href: '/franchise/learners', label: 'Learners' },
+  { href: '/franchise/compliance', label: 'Compliance' },
 ];
 
 export default function FranchiseLayout({ children }: { children: React.ReactNode }): React.JSX.Element {
@@ -22,13 +22,12 @@ export default function FranchiseLayout({ children }: { children: React.ReactNod
   }, []);
 
   return (
-    <div className="flex min-h-screen">
-      {/* Sidebar */}
-      <aside className="w-60 shrink-0 border-r border-slate-800 bg-[#0d0d2e] px-4 py-8">
+    <div className="flex min-h-screen bbt-screen">
+      <aside className="w-60 shrink-0 border-r bbt-sidebar px-4 py-8">
         <div className="mb-8">
-          <p className="text-xs uppercase tracking-widest text-slate-500">Franchise</p>
+          <p className="text-xs uppercase tracking-widest bbt-muted">Franchise</p>
           {franchiseName && (
-            <p className="mt-1 font-semibold text-white truncate">{franchiseName}</p>
+            <p className="mt-1 truncate font-semibold bbt-title">{franchiseName}</p>
           )}
         </div>
         <nav className="space-y-1">
@@ -37,9 +36,7 @@ export default function FranchiseLayout({ children }: { children: React.ReactNod
               key={item.href}
               href={item.href}
               className={`flex items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                pathname === item.href
-                  ? 'bg-[#2E3192] text-white'
-                  : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                pathname === item.href ? 'bbt-chip-active' : 'bbt-nav-pill'
               }`}
             >
               {item.label}
@@ -48,8 +45,7 @@ export default function FranchiseLayout({ children }: { children: React.ReactNod
         </nav>
       </aside>
 
-      {/* Content */}
-      <main className="flex-1 bg-[#0d0d2e] px-8 py-8">{children}</main>
+      <main className="flex-1 px-8 py-8">{children}</main>
     </div>
   );
 }

@@ -17,6 +17,7 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+.venv/
 
 # Type checking
 *.tsbuildinfo
@@ -24,6 +25,7 @@ __pycache__/
 # Test coverage
 coverage/
 .nyc_output/
+test-results/
 
 # Logs
 *.log

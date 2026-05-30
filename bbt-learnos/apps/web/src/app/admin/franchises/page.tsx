@@ -1,8 +1,9 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+
 import { adminApi } from '@/lib/admin';
 import type { FranchiseRow } from '@/lib/admin';
+import { useAuthStore } from '@/lib/store';
 
 const COMPLIANCE_CONFIG: Record<FranchiseRow['complianceStatus'], { label: string; dot: string; row: string }> = {
   green: { label: 'Compliant', dot: 'bg-green-400', row: '' },

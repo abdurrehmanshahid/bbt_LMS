@@ -1,3 +1,4 @@
+import * as DocumentPicker from 'expo-document-picker';
 import React, { useState } from 'react';
 import {
   View,
@@ -9,9 +10,9 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import * as DocumentPicker from 'expo-document-picker';
-import { useAuthStore } from '@/lib/store';
+
 import { creatorApi } from '@/lib/creator';
+import { useAuthStore } from '@/lib/store';
 
 type Phase = 'pick' | 'uploading' | 'metadata' | 'success';
 

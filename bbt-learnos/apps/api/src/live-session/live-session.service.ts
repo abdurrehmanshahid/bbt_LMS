@@ -7,8 +7,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { LiveSessionStatus } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+
 import { NotificationService } from '../notification/notification.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 interface DailyRoom {
   id: string;

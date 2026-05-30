@@ -1,6 +1,7 @@
+import { generateKeyPairSync } from 'crypto';
+
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { generateKeyPairSync } from 'crypto';
 
 @Injectable()
 export class KeysService {

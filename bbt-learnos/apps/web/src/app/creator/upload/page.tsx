@@ -1,339 +1,426 @@
 'use client';
-import { useState, useRef, useCallback } from 'react';
-import Link from 'next/link';
-import { useForm } from 'react-hook-form';
+
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useQuery } from '@tanstack/react-query';
+import Link from 'next/link';
+import { useMemo, useRef, useState } from 'react';
+import { useForm } from 'react-hook-form';
 import { z } from 'zod';
+
+import { getHashtagSuggestions, getTracks, getTrackModules, getModuleConcepts } from '@/lib/api';
+import { creatorApi, type ContentType } from '@/lib/creator';
 import { useAuthStore } from '@/lib/store';
-import { creatorApi } from '@/lib/creator';
-import type { ContentType } from '@/lib/creator';
 
-const MAX_BYTES = 3 * 1024 * 1024 * 1024; // 3 GB
+const MAX_LONG_BYTES = 3 * 1024 * 1024 * 1024;
+const MAX_REEL_BYTES = 250 * 1024 * 1024;
+const MAX_REEL_SECONDS = 60;
 
-const metaSchema = z.object({
-  title: z.string().min(5, 'Title must be at least 5 characters').max(100, 'Title too long'),
+const uploadSchema = z.object({
+  title: z.string().min(3, 'Title must be at least 3 characters').max(100, 'Title too long'),
   trackId: z.string().min(1, 'Select a track'),
+  description: z.string().max(1000, 'Max 1000 characters').optional(),
   type: z.enum(['REEL', 'LECTURE', 'LIVE_RECORDING', 'RESOURCE']),
-  moduleId: z.string().optional(),
-  description: z.string().max(1000, 'Max 1000 characters'),
+  tags: z.string().max(160, 'Too many hashtags').optional(),
 });
 
-type MetaFormData = z.infer<typeof metaSchema>;
+type UploadFormData = z.infer<typeof uploadSchema>;
+type UploadMode = 'quick' | 'full';
+type Phase = 'form' | 'uploading' | 'success';
 
-type Phase = 'drop' | 'uploading' | 'metadata' | 'success';
+function formatBytes(bytes: number): string {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(0)} MB`;
+  return `${(bytes / 1e3).toFixed(0)} KB`;
+}
 
-const TRACKS = [
-  { id: 't1', title: 'GenAI + Agentic AI' },
-  { id: 't2', title: 'Cloud + MLOps' },
-  { id: 't3', title: 'Odoo ERP Development' },
-  { id: 't4', title: 'AI-Integrated Full Stack' },
-  { id: 't5', title: 'Cybersecurity' },
-  { id: 't6', title: 'UI/UX + Brand Design' },
-  { id: 't7', title: 'AI Marketing + Sales' },
-];
+function parseTags(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(/[,\s]+/)
+    .map((tag) => tag.trim().replace(/^#/, ''))
+    .filter(Boolean)
+    .slice(0, 8);
+}
 
-const TYPES: Array<{ value: ContentType; label: string; hint: string }> = [
-  { value: 'REEL', label: 'Reel', hint: '≤ 3 min' },
-  { value: 'LECTURE', label: 'Lecture', hint: '≤ 120 min' },
-  { value: 'LIVE_RECORDING', label: 'Live Recording', hint: 'any length' },
-  { value: 'RESOURCE', label: 'Resource', hint: 'non-video' },
-];
+function fallbackTagsForTitle(title: string | undefined): string[] {
+  const text = (title ?? '').toLowerCase();
+  if (text.includes('genai') || text.includes('agent')) return ['GenAI', 'AgenticAI', 'PromptEngineering'];
+  if (text.includes('cloud') || text.includes('mlops')) return ['Cloud', 'MLOps', 'AWS'];
+  if (text.includes('cyber')) return ['CyberSecurity', 'SOC', 'EthicalHacking'];
+  if (text.includes('design')) return ['UIUX', 'DesignSystems', 'BrandDesign'];
+  return ['BBTLearnOS', 'CareerOS', 'SkillReel'];
+}
 
-function formatBytes(b: number): string {
-  if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
-  if (b >= 1e6) return `${(b / 1e6).toFixed(0)} MB`;
-  return `${(b / 1e3).toFixed(0)} KB`;
+function getVideoDuration(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    const url = URL.createObjectURL(file);
+
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(video.duration);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Could not read video duration'));
+    };
+    video.src = url;
+  });
 }
 
 export default function UploadPage(): React.JSX.Element {
   const { accessToken } = useAuthStore();
-  const [phase, setPhase] = useState<Phase>('drop');
-  const [file, setFile] = useState<File | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [contentId, setContentId] = useState<string | null>(null);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const isDragging = useRef(false);
-  const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<UploadMode>('quick');
+  const [phase, setPhase] = useState<Phase>('form');
+  const [file, setFile] = useState<File | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
+    setValue,
     watch,
     formState: { errors, isSubmitting },
-  } = useForm<MetaFormData>({
-    resolver: zodResolver(metaSchema),
-    defaultValues: { type: 'LECTURE', description: '' },
+  } = useForm<UploadFormData>({
+    resolver: zodResolver(uploadSchema),
+    defaultValues: { type: 'REEL', description: '', tags: '' },
   });
 
-  const descLen = watch('description')?.length ?? 0;
+  const selectedTrackId = watch('trackId');
+  const [selectedModuleId, setSelectedModuleId] = useState<string>('');
+  const [selectedConceptId, setSelectedConceptId] = useState<string>('');
 
-  function validateFile(f: File): string | null {
-    if (!f.type.startsWith('video/')) return 'Only video files are accepted.';
-    if (f.size > MAX_BYTES) return `File too large (max 3 GB). Yours: ${formatBytes(f.size)}`;
-    return null;
+  const { data: tracks = [], isLoading: tracksLoading } = useQuery({
+    queryKey: ['creator-upload-tracks'],
+    queryFn: getTracks,
+    staleTime: 5 * 60_000,
+  });
+
+  const { data: trackModules = [] } = useQuery({
+    queryKey: ['creator-track-modules', selectedTrackId],
+    queryFn: () => getTrackModules(selectedTrackId),
+    enabled: !!selectedTrackId,
+    staleTime: 2 * 60_000,
+  });
+
+  const { data: moduleConcepts = [] } = useQuery({
+    queryKey: ['creator-module-concepts', selectedTrackId, selectedModuleId],
+    queryFn: () => getModuleConcepts(selectedTrackId, selectedModuleId),
+    enabled: !!selectedTrackId && !!selectedModuleId,
+    staleTime: 2 * 60_000,
+  });
+
+  const fallbackSuggestedTags = useMemo(
+    () => fallbackTagsForTitle(tracks.find((track) => track.id === selectedTrackId)?.title),
+    [selectedTrackId, tracks],
+  );
+  const { data: apiSuggestions } = useQuery({
+    queryKey: ['creator-hashtag-suggestions', selectedTrackId],
+    queryFn: () => getHashtagSuggestions(selectedTrackId, accessToken!),
+    enabled: !!accessToken && !!selectedTrackId,
+    staleTime: 5 * 60_000,
+  });
+  const suggestedTags = apiSuggestions?.tags.length ? apiSuggestions.tags : fallbackSuggestedTags;
+
+  function setUploadMode(nextMode: UploadMode): void {
+    setMode(nextMode);
+    setValue('type', nextMode === 'quick' ? 'REEL' : 'LECTURE');
+    setError(null);
   }
 
-  const startUpload = useCallback(async (f: File): Promise<void> => {
-    if (!accessToken) return;
-    setFileError(null);
-    const err = validateFile(f);
-    if (err) { setFileError(err); return; }
+  function onFileChange(event: React.ChangeEvent<HTMLInputElement>): void {
+    setFile(event.target.files?.[0] ?? null);
+    setError(null);
+  }
 
-    setFile(f);
-    setPhase('uploading');
-    setUploadProgress(0);
-
-    try {
-      const { contentId: cid, uploadUrl } = await creatorApi.initUpload(accessToken, f.name, f.size);
-      setContentId(cid);
-
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.upload.addEventListener('progress', (e) => {
-          if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
-        });
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error(`Upload failed: ${xhr.status}`));
-        });
-        xhr.addEventListener('error', () => reject(new Error('Network error')));
-        xhr.open('PUT', uploadUrl);
-        xhr.setRequestHeader('Content-Type', f.type);
-        xhr.send(f);
+  async function uploadToMux(uploadUrl: string, selectedFile: File): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) setProgress(Math.round((event.loaded / event.total) * 100));
       });
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject(new Error(`Upload failed with status ${xhr.status}`));
+      });
+      xhr.addEventListener('error', () => reject(new Error('Network error while uploading')));
+      xhr.open('PUT', uploadUrl);
+      xhr.setRequestHeader('Content-Type', selectedFile.type);
+      xhr.send(selectedFile);
+    });
+  }
 
-      setUploadProgress(100);
-      setPhase('metadata');
-    } catch (e) {
-      setFileError(e instanceof Error ? e.message : 'Upload failed');
-      setPhase('drop');
+  async function onSubmit(data: UploadFormData): Promise<void> {
+    if (!accessToken) {
+      setError('You need to sign in as a creator before uploading.');
+      return;
     }
-  }, [accessToken]);
+    if (!file) {
+      setError('Choose a video file first.');
+      return;
+    }
+    if (!file.type.startsWith('video/')) {
+      setError('Only video files are accepted.');
+      return;
+    }
 
-  function onDrop(e: React.DragEvent): void {
-    e.preventDefault();
-    setDragOver(false);
-    isDragging.current = false;
-    const f = e.dataTransfer.files[0];
-    if (f) void startUpload(f);
-  }
+    setError(null);
 
-  function onFileChange(e: React.ChangeEvent<HTMLInputElement>): void {
-    const f = e.target.files?.[0];
-    if (f) void startUpload(f);
-  }
-
-  async function onMetaSubmit(data: MetaFormData): Promise<void> {
-    if (!accessToken || !contentId) return;
-    setSubmitError(null);
     try {
-      await creatorApi.submitMetadata(accessToken, contentId, {
+      const duration = Math.ceil(await getVideoDuration(file));
+      const maxBytes = mode === 'quick' ? MAX_REEL_BYTES : MAX_LONG_BYTES;
+
+      if (file.size > maxBytes) {
+        setError(`File too large. Max ${formatBytes(maxBytes)}. Yours: ${formatBytes(file.size)}.`);
+        return;
+      }
+      if (mode === 'quick' && duration > MAX_REEL_SECONDS) {
+        setError(`Quick Reels must be ${MAX_REEL_SECONDS} seconds or shorter. Yours is ${duration} seconds.`);
+        return;
+      }
+
+      setPhase('uploading');
+      setProgress(0);
+
+      const response = await creatorApi.createUpload(accessToken, {
         title: data.title,
+        ...(data.description ? { description: data.description } : {}),
         trackId: data.trackId,
-        type: data.type as ContentType,
-        ...(data.moduleId ? { moduleId: data.moduleId } : {}),
-        conceptTags: [],
-        description: data.description,
+        ...(selectedModuleId ? { moduleId: selectedModuleId } : {}),
+        ...(selectedConceptId ? { conceptId: selectedConceptId } : {}),
+        type: (mode === 'quick' ? 'REEL' : data.type) as ContentType,
+        tags: parseTags(data.tags),
+        quickReel: mode === 'quick',
+        durationSeconds: duration,
       });
+
+      await uploadToMux(response.uploadUrl, file);
+      setProgress(100);
       setPhase('success');
-    } catch {
-      setSubmitError('Could not submit content. Please try again.');
+    } catch (err) {
+      setPhase('form');
+      setError(err instanceof Error ? err.message : 'Could not upload content. Please try again.');
     }
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-2xl">
-      <h1 className="font-display text-2xl text-white mb-6">Upload Content</h1>
-
-      {/* Step indicator */}
-      <div className="flex items-center gap-2 mb-8">
-        {(['drop', 'uploading', 'metadata', 'success'] as Phase[]).map((p, i) => {
-          const labels = ['Select file', 'Uploading', 'Add details', 'Done'];
-          const done = ['drop', 'uploading', 'metadata', 'success'].indexOf(phase) > i;
-          const active = phase === p;
-          return (
-            <div key={p} className="flex items-center gap-2">
-              <div className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-mono transition-colors ${
-                done ? 'bg-green-500 text-white' : active ? 'bg-orange-500 text-white' : 'bg-navy-700 text-navy-400'
-              }`}>
-                {done ? '✓' : i + 1}
-              </div>
-              <span className={`text-xs font-mono ${active ? 'text-white' : 'text-navy-500'}`}>{labels[i]}</span>
-              {i < 3 && <div className="w-6 h-px bg-navy-700" />}
-            </div>
-          );
-        })}
+    <div className="max-w-3xl p-6 lg:p-8">
+      <div className="mb-6 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-xs font-mono uppercase tracking-wider text-orange-400">Creator Studio</p>
+          <h1 className="font-display text-3xl text-white">Post Content</h1>
+        </div>
+        <Link href="/creator/dashboard" className="text-sm font-mono text-navy-300 hover:text-white">
+          Dashboard
+        </Link>
       </div>
 
-      {/* Phase: drop */}
-      {phase === 'drop' && (
-        <div>
-          {fileError && (
-            <div role="alert" className="mb-4 rounded-lg bg-red-900/40 border border-red-700 px-4 py-3 text-sm text-red-300">{fileError}</div>
-          )}
+      {phase === 'form' ? (
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6" noValidate>
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-navy-700 bg-navy-900 p-1">
+            <button
+              type="button"
+              onClick={() => setUploadMode('quick')}
+              className={`rounded-lg px-4 py-3 text-sm font-semibold transition-colors ${mode === 'quick' ? 'bg-orange-500 text-white' : 'text-navy-300 hover:bg-navy-800'}`}
+            >
+              Quick Reel
+            </button>
+            <button
+              type="button"
+              onClick={() => setUploadMode('full')}
+              className={`rounded-lg px-4 py-3 text-sm font-semibold transition-colors ${mode === 'full' ? 'bg-orange-500 text-white' : 'text-navy-300 hover:bg-navy-800'}`}
+            >
+              Full Upload
+            </button>
+          </div>
+
+          {error ? (
+            <div role="alert" className="rounded-lg border border-red-700 bg-red-900/40 px-4 py-3 text-sm text-red-300">
+              {error}
+            </div>
+          ) : null}
+
           <div
-            className={`rounded-2xl border-2 border-dashed p-12 text-center transition-colors cursor-pointer ${
-              dragOver ? 'border-orange-500 bg-orange-500/5' : 'border-navy-600 hover:border-navy-500'
-            }`}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={onDrop}
-            onClick={() => fileInputRef.current?.click()}
+            className="rounded-2xl border-2 border-dashed border-navy-600 bg-navy-900 p-8 text-center hover:border-orange-500"
             role="button"
             tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
-            aria-label="Upload video file"
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') fileInputRef.current?.click();
+            }}
+            aria-label="Choose video file"
           >
-            <svg className="mx-auto h-12 w-12 text-navy-500 mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-            </svg>
-            <p className="text-white font-semibold mb-1">Drop your video here</p>
-            <p className="text-xs text-navy-400">or click to browse — max 3 GB, video files only</p>
             <input ref={fileInputRef} type="file" accept="video/*" className="sr-only" onChange={onFileChange} />
+            <p className="font-semibold text-white">{file ? file.name : mode === 'quick' ? 'Tap to record or upload a reel' : 'Drop in a lecture or recording'}</p>
+            <p className="mt-1 text-xs text-navy-400">
+              {file ? formatBytes(file.size) : mode === 'quick' ? 'Video only, 60 seconds max' : 'Video only, up to 3 GB'}
+            </p>
           </div>
-        </div>
-      )}
 
-      {/* Phase: uploading */}
-      {phase === 'uploading' && file && (
-        <div className="rounded-2xl border border-navy-700 bg-navy-800 p-8 space-y-5">
-          <div className="flex items-center gap-4">
-            <svg className="h-10 w-10 text-orange-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
-            </svg>
-            <div className="min-w-0">
-              <p className="text-white font-medium truncate">{file.name}</p>
-              <p className="text-xs text-navy-400 font-mono">{formatBytes(file.size)}</p>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label htmlFor="title" className="mb-1.5 block text-xs font-mono text-navy-300">Title</label>
+              <input
+                id="title"
+                className="w-full rounded-lg border border-navy-600 bg-navy-800 px-4 py-2.5 text-sm text-white placeholder-navy-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                placeholder={mode === 'quick' ? '60-sec lesson hook' : 'Introduction to Neural Networks'}
+                {...register('title')}
+              />
+              {errors.title ? <p className="mt-1 text-xs text-red-400">{errors.title.message}</p> : null}
             </div>
-          </div>
-          <div>
-            <div className="flex justify-between text-xs font-mono text-navy-400 mb-1.5">
-              <span>Uploading to Mux…</span>
-              <span>{uploadProgress}%</span>
+
+            <div>
+              <label htmlFor="trackId" className="mb-1.5 block text-xs font-mono text-navy-300">Track</label>
+              <select
+                id="trackId"
+                className="w-full rounded-lg border border-navy-600 bg-navy-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                {...register('trackId', { onChange: () => { setSelectedModuleId(''); setSelectedConceptId(''); } })}
+              >
+                <option value="">Select track</option>
+                {tracks.map((track) => <option key={track.id} value={track.id}>{track.title}</option>)}
+              </select>
+              {tracksLoading ? <p className="mt-1 text-xs text-navy-500">Loading tracks...</p> : null}
+              {errors.trackId ? <p className="mt-1 text-xs text-red-400">{errors.trackId.message}</p> : null}
             </div>
-            <div className="h-2 rounded-full bg-navy-700 overflow-hidden" role="progressbar" aria-valuenow={uploadProgress} aria-valuemin={0} aria-valuemax={100}>
-              <div className="h-full rounded-full bg-orange-500 transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
-            </div>
-          </div>
-          <p className="text-xs text-navy-500">Do not close this tab while uploading.</p>
-        </div>
-      )}
 
-      {/* Phase: metadata */}
-      {phase === 'metadata' && (
-        <form onSubmit={handleSubmit(onMetaSubmit)} noValidate className="space-y-5">
-          <div className="rounded-lg bg-green-900/20 border border-green-800 px-4 py-3 text-sm text-green-300">
-            ✓ Video uploaded successfully — Mux is processing it. Add details below.
-          </div>
-
-          {submitError && (
-            <div role="alert" className="rounded-lg bg-red-900/40 border border-red-700 px-4 py-3 text-sm text-red-300">{submitError}</div>
-          )}
-
-          {/* Title */}
-          <div>
-            <label htmlFor="title" className="block text-xs font-mono text-navy-300 mb-1.5">Title <span className="text-red-400">*</span></label>
-            <input
-              id="title"
-              type="text"
-              className={`w-full rounded-lg border bg-navy-800 px-4 py-2.5 text-sm text-white placeholder-navy-500 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-colors ${errors.title ? 'border-red-500' : 'border-navy-600'}`}
-              placeholder="Introduction to Neural Networks"
-              {...register('title')}
-            />
-            {errors.title && <p role="alert" className="mt-1 text-xs text-red-400">{errors.title.message}</p>}
-          </div>
-
-          {/* Track */}
-          <div>
-            <label htmlFor="trackId" className="block text-xs font-mono text-navy-300 mb-1.5">Track <span className="text-red-400">*</span></label>
-            <select
-              id="trackId"
-              className={`w-full rounded-lg border bg-navy-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-colors ${errors.trackId ? 'border-red-500' : 'border-navy-600'}`}
-              {...register('trackId')}
-            >
-              <option value="">Select track…</option>
-              {TRACKS.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
-            </select>
-            {errors.trackId && <p role="alert" className="mt-1 text-xs text-red-400">{errors.trackId.message}</p>}
-          </div>
-
-          {/* Type */}
-          <div>
-            <p className="text-xs font-mono text-navy-300 mb-2">Content type <span className="text-red-400">*</span></p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {TYPES.map((t) => (
-                <label key={t.value} className="relative">
-                  <input type="radio" value={t.value} className="sr-only peer" {...register('type')} />
-                  <div className="peer-checked:border-orange-500 peer-checked:bg-orange-500/10 rounded-lg border border-navy-700 p-3 text-center cursor-pointer hover:border-navy-500 transition-colors">
-                    <p className="text-sm font-semibold text-white">{t.label}</p>
-                    <p className="text-xs text-navy-400 mt-0.5">{t.hint}</p>
-                  </div>
+            {selectedTrackId && trackModules.length > 0 ? (
+              <div>
+                <label htmlFor="moduleId" className="mb-1.5 block text-xs font-mono text-navy-300">
+                  Module <span className="text-navy-500">(optional)</span>
                 </label>
-              ))}
-            </div>
-          </div>
+                <select
+                  id="moduleId"
+                  value={selectedModuleId}
+                  onChange={(e) => { setSelectedModuleId(e.target.value); setSelectedConceptId(''); }}
+                  className="w-full rounded-lg border border-navy-600 bg-navy-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="">All modules</option>
+                  {trackModules.map((m) => (
+                    <option key={m.id} value={m.id}>{m.title}</option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
 
-          {/* Description */}
-          <div>
-            <label htmlFor="description" className="block text-xs font-mono text-navy-300 mb-1.5">
-              Description <span className="text-navy-500">({descLen}/1000)</span>
-            </label>
-            <textarea
-              id="description"
-              rows={4}
-              className="w-full rounded-lg border border-navy-600 bg-navy-800 px-4 py-2.5 text-sm text-white placeholder-navy-500 focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
-              placeholder="What will learners gain from this video?"
-              {...register('description')}
-            />
-            {errors.description && <p role="alert" className="mt-1 text-xs text-red-400">{errors.description.message}</p>}
+            {selectedModuleId && moduleConcepts.length > 0 ? (
+              <div>
+                <label htmlFor="conceptId" className="mb-1.5 block text-xs font-mono text-navy-300">
+                  Concept <span className="text-navy-500">(optional)</span>
+                </label>
+                <select
+                  id="conceptId"
+                  value={selectedConceptId}
+                  onChange={(e) => setSelectedConceptId(e.target.value)}
+                  className="w-full rounded-lg border border-navy-600 bg-navy-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="">All concepts</option>
+                  {moduleConcepts.map((c) => (
+                    <option key={c.id} value={c.id}>{c.title}</option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+            {mode === 'full' ? (
+              <div>
+                <label htmlFor="type" className="mb-1.5 block text-xs font-mono text-navy-300">Type</label>
+                <select
+                  id="type"
+                  className="w-full rounded-lg border border-navy-600 bg-navy-800 px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  {...register('type')}
+                >
+                  <option value="LECTURE">Lecture</option>
+                  <option value="LIVE_RECORDING">Live Recording</option>
+                  <option value="RESOURCE">Resource</option>
+                  <option value="REEL">Reel</option>
+                </select>
+              </div>
+            ) : null}
+
+            <div className="sm:col-span-2">
+              <label htmlFor="tags" className="mb-1.5 block text-xs font-mono text-navy-300">Hashtags</label>
+              <input
+                id="tags"
+                className="w-full rounded-lg border border-navy-600 bg-navy-800 px-4 py-2.5 text-sm text-white placeholder-navy-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                placeholder={suggestedTags.map((tag) => `#${tag}`).join(' ')}
+                {...register('tags')}
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                {suggestedTags.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => setValue('tags', suggestedTags.map((item) => `#${item}`).join(' '))}
+                    className="rounded-full bg-navy-800 px-3 py-1 text-xs font-mono text-orange-300 hover:bg-navy-700"
+                  >
+                    #{tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label htmlFor="description" className="mb-1.5 block text-xs font-mono text-navy-300">Caption</label>
+              <textarea
+                id="description"
+                rows={4}
+                className="w-full rounded-lg border border-navy-600 bg-navy-800 px-4 py-2.5 text-sm text-white placeholder-navy-500 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                placeholder={mode === 'quick' ? 'One sentence that tells learners what they will unlock.' : 'What will learners gain from this video?'}
+                {...register('description')}
+              />
+            </div>
           </div>
 
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full rounded-lg bg-orange-500 py-3 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            className="w-full rounded-lg bg-orange-500 py-3 text-sm font-semibold text-white transition-colors hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSubmitting && (
-              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-            )}
-            {isSubmitting ? 'Submitting for review…' : 'Submit for moderation →'}
+            {isSubmitting ? 'Preparing upload...' : mode === 'quick' ? 'Post Reel' : 'Submit for Moderation'}
           </button>
         </form>
-      )}
+      ) : null}
 
-      {/* Phase: success */}
-      {phase === 'success' && (
-        <div className="rounded-2xl border border-navy-700 bg-navy-800 p-10 text-center space-y-5">
-          <div className="mx-auto h-16 w-16 rounded-full bg-green-900/40 border border-green-700 flex items-center justify-center">
-            <svg className="h-8 w-8 text-green-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+      {phase === 'uploading' ? (
+        <div className="rounded-2xl border border-navy-700 bg-navy-800 p-8">
+          <p className="font-semibold text-white">Uploading to Mux</p>
+          <p className="mt-1 text-xs text-navy-400">Keep this tab open until the upload finishes.</p>
+          <div className="mt-5 flex justify-between text-xs font-mono text-navy-400">
+            <span>{file?.name}</span>
+            <span>{progress}%</span>
           </div>
-          <div>
-            <h2 className="font-display text-2xl text-white">Content submitted!</h2>
-            <p className="mt-2 text-sm text-navy-400">
-              Your content is in the moderation queue. Tier 2/3 creators are typically reviewed within 24 hours.
-            </p>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-navy-700" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
+            <div className="h-full rounded-full bg-orange-500 transition-all" style={{ width: `${progress}%` }} />
           </div>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <Link href="/creator/dashboard" className="inline-flex h-10 items-center justify-center rounded-lg bg-orange-500 px-5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors">
-              Back to dashboard
+        </div>
+      ) : null}
+
+      {phase === 'success' ? (
+        <div className="rounded-2xl border border-navy-700 bg-navy-800 p-10 text-center">
+          <h2 className="font-display text-3xl text-white">Uploaded</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm text-navy-300">
+            Mux is processing the video. It will enter moderation as soon as the asset is ready.
+          </p>
+          <div className="mt-6 flex justify-center gap-3">
+            <Link href="/creator/dashboard" className="rounded-lg bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-orange-600">
+              Dashboard
             </Link>
             <button
               type="button"
-              onClick={() => { setPhase('drop'); setFile(null); setContentId(null); setUploadProgress(0); }}
-              className="inline-flex h-10 items-center justify-center rounded-lg border border-navy-600 px-5 text-sm font-semibold text-white hover:border-navy-400 transition-colors"
+              onClick={() => {
+                setPhase('form');
+                setFile(null);
+                setProgress(0);
+              }}
+              className="rounded-lg border border-navy-600 px-5 py-2.5 text-sm font-semibold text-white hover:border-navy-400"
             >
-              Upload another
+              Post another
             </button>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

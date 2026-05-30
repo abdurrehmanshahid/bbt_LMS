@@ -1,5 +1,6 @@
-import * as React from 'react';
 import * as RadixAvatar from '@radix-ui/react-avatar';
+import * as React from 'react';
+
 import { cn } from '../utils/cn';
 
 export type AvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';

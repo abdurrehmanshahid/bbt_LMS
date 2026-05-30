@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+
 import { assessmentApi } from '@/lib/assessment';
 import type { SkillBadge } from '@/lib/assessment';
 
@@ -19,7 +20,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description: `Verified skill badges earned by ${data.user.name} on BBT LearnOS.`,
       openGraph: {
         title: `${data.user.name} | BBT Portfolio`,
-        description: `${(data.badges as unknown[]).length} verified skills`,
+        description: `${(data.badges).length} verified skills`,
         type: 'profile',
         url: `https://bbt.edu.pk/portfolio/${params.username}`,
       },
@@ -111,14 +112,13 @@ export default async function PortfolioPage({ params }: Props): Promise<React.JS
 
   return (
     <>
-      <div className="min-h-screen bg-navy-950">
+      <div className="min-h-screen bbt-screen">
         {/* Header */}
         <section className="bg-navy-900 border-b border-navy-800 px-4 py-10">
           <div className="mx-auto max-w-3xl">
             <div className="flex items-start gap-5">
               <div className="h-16 w-16 shrink-0 rounded-full bg-indigo-600 flex items-center justify-center text-white font-display text-2xl overflow-hidden">
                 {user.avatarUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img src={user.avatarUrl} alt={user.name} className="h-full w-full object-cover" />
                 ) : initials}
               </div>

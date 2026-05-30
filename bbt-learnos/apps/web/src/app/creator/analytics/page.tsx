@@ -1,8 +1,9 @@
 'use client';
-import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+import { useState } from 'react';
+
 import { creatorApi } from '@/lib/creator';
+import { useAuthStore } from '@/lib/store';
 
 type Period = '7d' | '30d' | '90d';
 

@@ -11,9 +11,8 @@ Cold-start (<20 engagement signals): 100% PROGRESSION content, no CF.
 """
 from __future__ import annotations
 
-import json
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,7 +51,7 @@ async def compose_feed(
         learnerId=learner_id,
         items=all_items[:limit],
         isColdStart=is_cold,
-        generatedAt=datetime.now(timezone.utc).isoformat(),
+        generatedAt=datetime.now(UTC).isoformat(),
     )
 
 

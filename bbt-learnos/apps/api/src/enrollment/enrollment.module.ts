@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
-import { EnrollmentService } from './enrollment.service';
+
 import { EnrollmentController } from './enrollment.controller';
+import { EnrollmentService } from './enrollment.service';
 
 @Module({
   providers: [EnrollmentService],

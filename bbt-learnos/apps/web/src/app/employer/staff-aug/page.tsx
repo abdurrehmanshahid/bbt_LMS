@@ -1,8 +1,9 @@
 'use client';
-import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+import React, { useState } from 'react';
+
 import { submitStaffAug, getStaffAugRequests, type StaffAugRequest } from '@/lib/employer';
+import { useAuthStore } from '@/lib/store';
 
 const DURATIONS = ['1_week', '1_month', '3_months', 'ongoing'];
 const DURATION_LABEL: Record<string, string> = {

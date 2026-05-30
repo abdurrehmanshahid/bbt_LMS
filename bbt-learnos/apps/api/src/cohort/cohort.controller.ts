@@ -10,10 +10,12 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
-import { CohortService } from './cohort.service';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+
+import { CohortService } from './cohort.service';
 
 class CreateStudyGroupDto {
   memberIds!: string[];

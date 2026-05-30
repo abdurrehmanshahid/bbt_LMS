@@ -4,11 +4,11 @@ import {
   ForbiddenException,
   BadRequestException,
   ConflictException,
-} from '@nestjs/common';
+ Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Logger } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+
 import { NotificationService } from '../notification/notification.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 export interface CreateSlotDto {
   title?: string;

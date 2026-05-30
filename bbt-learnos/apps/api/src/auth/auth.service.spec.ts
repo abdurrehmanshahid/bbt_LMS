@@ -1,4 +1,3 @@
-import { Test } from '@nestjs/testing';
 import {
   ConflictException,
   UnauthorizedException,
@@ -6,15 +5,18 @@ import {
   BadRequestException,
   HttpException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
+import { Test } from '@nestjs/testing';
 import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { AuthService } from './auth.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { RedisService } from '../redis/redis.service';
+
 import { EmailService } from '../email/email.service';
 import { KeysService } from '../keys/keys.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
+
+import { AuthService } from './auth.service';
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -577,7 +579,7 @@ describe('AuthService', () => {
         publicKeyEncoding: { type: 'spki', format: 'pem' },
         privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
       });
-      const jwk = createPublicKey(publicKey).export({ format: 'jwk' }) as import('crypto').JsonWebKey;
+      const jwk = createPublicKey(publicKey).export({ format: 'jwk' });
 
       const pem = (service as any).jwkToPem(jwk) as string;
 

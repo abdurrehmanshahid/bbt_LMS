@@ -11,11 +11,13 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { LtiService } from './lti.service';
+
+import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { Roles } from '../common/decorators/roles.decorator';
+
 import { LTI_MESSAGE_TYPE_DEEP_LINK } from './lti.interfaces';
+import { LtiService } from './lti.service';
 
 @Controller('lti')
 export class LtiController {
@@ -149,7 +151,7 @@ export class LtiController {
   // ── Tool public JWKS (platforms fetch our public key) ──────────────────────
 
   @Get('.well-known/jwks.json')
-  async getJwks(): Promise<object> {
+  getJwks(): object {
     // In production: load LTI_PUBLIC_KEY, export as JWKS
     // Returning empty keyset stub — key is generated at deploy time
     return { keys: [] };

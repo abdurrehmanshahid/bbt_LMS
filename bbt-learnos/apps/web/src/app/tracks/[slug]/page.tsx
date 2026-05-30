@@ -1,6 +1,10 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
+
+import { AdSlot } from '@/components/AdSlot';
+import { PaymentMethodSelector } from '@/components/PaymentMethodSelector';
+import { TrackEnrollCTA } from '@/components/TrackEnrollCTA';
 import { getTracks, getTrack } from '@/lib/api';
 import type { ModuleSummary } from '@/lib/api';
 
@@ -82,7 +86,7 @@ export default async function TrackPage({ params }: Props): Promise<React.JSX.El
   const FREE_MODULES = 2;
 
   return (
-    <>
+    <div className="min-h-screen bbt-screen">
       {/* Hero */}
       <section className="bg-navy-950 pt-16 pb-20 px-4">
         <div className="mx-auto max-w-4xl">
@@ -103,18 +107,13 @@ export default async function TrackPage({ params }: Props): Promise<React.JSX.El
             <span className="text-white">{track.modules.length} <span className="text-navy-400">modules</span></span>
             <span className="text-white">{Math.round(track.avgCompletionRate * 100)}% <span className="text-navy-400">completion rate</span></span>
           </div>
-          <div className="mt-8 flex gap-3">
+          <div className="mt-8 flex flex-wrap gap-3">
+            <TrackEnrollCTA trackId={track.id} trackSlug={track.slug} freeModuleCount={FREE_MODULES} />
             <Link
-              href="/auth/signup"
-              className="inline-flex h-11 items-center gap-2 rounded-xl bg-orange-500 px-6 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
+              href={`/tracks/${track.slug}/skill-graph`}
+              className="inline-flex h-11 items-center gap-2 rounded-xl border border-navy-700 px-6 text-sm font-mono text-navy-300 hover:border-navy-500 hover:text-white transition-colors"
             >
-              Start Free — {FREE_MODULES} modules unlocked
-            </Link>
-            <Link
-              href={`/auth/signup?plan=monthly&track=${track.id}`}
-              className="inline-flex h-11 items-center gap-2 rounded-xl border border-navy-600 px-6 text-sm font-semibold text-white hover:border-navy-400 transition-colors"
-            >
-              Go Full Access
+              View Skill Map
             </Link>
           </div>
         </div>
@@ -160,12 +159,7 @@ export default async function TrackPage({ params }: Props): Promise<React.JSX.El
                 <li className="flex gap-2"><span className="text-green-500" aria-hidden="true">✓</span> Skill badge for each concept</li>
                 <li className="flex gap-2"><span className="text-green-500" aria-hidden="true">✓</span> Cohort assignment</li>
               </ul>
-              <Link
-                href="/auth/signup"
-                className="mt-6 block text-center rounded-lg border border-navy-200 dark:border-navy-600 py-2.5 text-sm font-semibold text-navy-700 dark:text-navy-200 hover:border-navy-400 transition-colors"
-              >
-                Start Free
-              </Link>
+              <TrackEnrollCTA trackId={track.id} trackSlug={track.slug} freeModuleCount={FREE_MODULES} compact />
             </div>
             {/* Paid */}
             <div className="rounded-2xl border-2 border-orange-500 bg-white dark:bg-navy-800 p-6 relative">
@@ -180,16 +174,15 @@ export default async function TrackPage({ params }: Props): Promise<React.JSX.El
                 <li className="flex gap-2"><span className="text-green-500" aria-hidden="true">✓</span> Offline downloads</li>
                 <li className="flex gap-2"><span className="text-green-500" aria-hidden="true">✓</span> Priority job matching</li>
               </ul>
-              <Link
-                href={`/auth/signup?plan=monthly&track=${track.id}`}
-                className="mt-6 block text-center rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
-              >
-                Go Full Access
-              </Link>
+              <PaymentMethodSelector trackId={track.id} trackSlug={track.slug} compact />
             </div>
           </div>
         </div>
       </section>
+
+      <div className="px-4 py-6 mx-auto max-w-4xl">
+        <AdSlot slot="track-sidebar" className="w-full" />
+      </div>
 
       {/* JSON-LD: Course */}
       <script
@@ -215,6 +208,6 @@ export default async function TrackPage({ params }: Props): Promise<React.JSX.El
           }),
         }}
       />
-    </>
+    </div>
   );
 }

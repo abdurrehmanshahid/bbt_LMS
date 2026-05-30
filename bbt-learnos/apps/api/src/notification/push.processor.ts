@@ -1,9 +1,11 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Job } from 'bullmq';
 import * as admin from 'firebase-admin';
-import { ConfigService } from '@nestjs/config';
+
 import { PrismaService } from '../prisma/prisma.service';
+
 import { PushJobData, PUSH_QUEUE } from './notification.types';
 
 @Processor(PUSH_QUEUE)

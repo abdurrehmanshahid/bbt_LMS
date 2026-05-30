@@ -242,7 +242,7 @@ export default async function JobsPage({ searchParams }: Props): Promise<React.J
   }));
 
   return (
-    <>
+    <div className="min-h-screen bbt-screen">
       {/* Hero */}
       <section className="bg-navy-950 pt-14 pb-16 px-4">
         <div className="mx-auto max-w-4xl">
@@ -371,6 +371,6 @@ export default async function JobsPage({ searchParams }: Props): Promise<React.J
           }}
         />
       )}
-    </>
+    </div>
   );
 }

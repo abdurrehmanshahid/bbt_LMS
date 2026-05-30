@@ -1,3 +1,4 @@
+import { JwtService } from '@nestjs/jwt';
 import {
   WebSocketGateway,
   WebSocketServer,
@@ -8,7 +9,7 @@ import {
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { JwtService } from '@nestjs/jwt';
+
 import { KeysService } from '../keys/keys.service';
 
 interface AuthenticatedSocket extends Socket {
@@ -27,7 +28,7 @@ export class CohortGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly keys: KeysService,
   ) {}
 
-  async handleConnection(client: AuthenticatedSocket): Promise<void> {
+  handleConnection(client: AuthenticatedSocket): void {
     const token = client.handshake.auth['token'] as string | undefined;
     if (!token) {
       client.disconnect();

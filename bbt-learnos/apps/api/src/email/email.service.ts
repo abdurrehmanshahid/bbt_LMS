@@ -7,21 +7,24 @@ export class EmailService {
 
   constructor(private readonly configService: ConfigService) {}
 
-  async sendVerificationEmail(to: string, token: string): Promise<void> {
+  sendVerificationEmail(to: string, token: string): Promise<void> {
     const base = this.configService.get<string>('NEXT_PUBLIC_API_URL', 'http://localhost:3000');
     const url = `${base}/auth/verify-email/${token}`;
-    this.logger.log(`[EMAIL] Verification → ${to} | ${url}`);
+    this.logger.log(`[EMAIL] Verification -> ${to} | ${url}`);
     // SES integration delivered in Step 5 (Notification module)
+    return Promise.resolve();
   }
 
-  async sendPasswordResetEmail(to: string, token: string): Promise<void> {
+  sendPasswordResetEmail(to: string, token: string): Promise<void> {
     const base = this.configService.get<string>('NEXT_PUBLIC_API_URL', 'http://localhost:3000');
     const url = `${base}/auth/reset-password/${token}`;
-    this.logger.log(`[EMAIL] Password reset → ${to} | ${url}`);
+    this.logger.log(`[EMAIL] Password reset -> ${to} | ${url}`);
+    return Promise.resolve();
   }
 
-  async send(opts: { to: string; subject: string; text: string }): Promise<void> {
-    this.logger.log(`[EMAIL] → ${opts.to} | ${opts.subject}`);
+  send(opts: { to: string; subject: string; text: string }): Promise<void> {
+    this.logger.log(`[EMAIL] -> ${opts.to} | ${opts.subject}`);
     // TODO: replace stub with @aws-sdk/client-ses in production
+    return Promise.resolve();
   }
 }

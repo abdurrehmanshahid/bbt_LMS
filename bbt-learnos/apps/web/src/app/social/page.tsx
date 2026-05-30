@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 
+import { REACTION_EMOJIS, TIER_COLOR } from '@/lib/constants';
+
 interface ContentItem {
   id: string;
   title: string;
@@ -34,10 +36,7 @@ async function api<T>(path: string, opts?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-const REACTION_EMOJIS: Record<string, string> = { LIKE: '👍', FIRE: '🔥', MIND_BLOWN: '🤯' };
-const TIER_COLORS: Record<number, string> = {
-  1: 'text-slate-400', 2: 'text-blue-400', 3: 'text-[#F7941D]',
-};
+const TIER_COLORS = TIER_COLOR;
 
 function FeedCard({ item }: { item: ContentItem }): React.JSX.Element {
   const [reactions, setReactions] = useState<ReactionCounts | null>(null);
@@ -77,7 +76,6 @@ function FeedCard({ item }: { item: ContentItem }): React.JSX.Element {
       {item.thumbnailUrl && (
         <a href={`/dashboard?content=${item.id}`}>
           <div className="relative aspect-video bg-slate-800">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={item.thumbnailUrl} alt={item.title} className="w-full h-full object-cover" />
             {mins && (
               <span className="absolute bottom-2 right-2 rounded bg-black/75 px-1.5 py-0.5 text-xs text-white">
@@ -181,7 +179,7 @@ export default function SocialFeedPage(): React.JSX.Element {
 
       {loading ? (
         <div className="space-y-4">
-          {[...Array(3)].map((_, i) => (
+          {Array.from({ length: 3 }, (_, i) => (
             <div key={i} className="rounded-xl border border-slate-700 bg-slate-900 h-64 animate-pulse" />
           ))}
         </div>

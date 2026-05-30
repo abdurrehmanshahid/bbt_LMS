@@ -2,9 +2,10 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useAuthStore } from '@/lib/store';
+
 import { assessmentApi } from '@/lib/assessment';
 import type { AssessmentSession, AssessmentResult, Question } from '@/lib/assessment';
+import { useAuthStore } from '@/lib/store';
 
 interface Props {
   params: { trackId: string; moduleId: string };
@@ -73,7 +74,7 @@ const KEY_LABELS = ['1', '2', '3', '4'] as const;
 
 export default function AssessmentPage({ params }: Props): React.JSX.Element {
   const router = useRouter();
-  const { accessToken } = useAuthStore();
+  const { accessToken, hasHydrated } = useAuthStore();
 
   const [phase, setPhase] = useState<Phase>('start');
   const [session, setSession] = useState<AssessmentSession | null>(null);
@@ -86,8 +87,9 @@ export default function AssessmentPage({ params }: Props): React.JSX.Element {
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
 
   useEffect(() => {
+    if (!hasHydrated) return;
     if (!accessToken) router.push(`/auth/login?returnUrl=/track/${params.trackId}/module/${params.moduleId}/assessment`);
-  }, [accessToken, router, params.trackId, params.moduleId]);
+  }, [accessToken, hasHydrated, router, params.trackId, params.moduleId]);
 
   useEffect(() => {
     if (phase === 'question') {
@@ -161,12 +163,12 @@ export default function AssessmentPage({ params }: Props): React.JSX.Element {
     return `${m}:${String(sec).padStart(2, '0')}`;
   }
 
-  if (!accessToken) return <></>;
+  if (!hasHydrated || !accessToken) return <></>;
 
   // ── Start screen ────────────────────────────────────────────────────────────
   if (phase === 'start') {
     return (
-      <div className="min-h-screen bg-navy-950 flex items-center justify-center px-4 py-12">
+      <div className="min-h-screen bbt-screen flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-lg">
           <div className="rounded-2xl border border-navy-700 bg-navy-900 p-10 text-center space-y-6">
             <div className="mx-auto h-16 w-16 rounded-full bg-indigo-900/40 border border-indigo-700 flex items-center justify-center">
@@ -245,7 +247,7 @@ export default function AssessmentPage({ params }: Props): React.JSX.Element {
     const isLast = questionIdx === total - 1;
 
     return (
-      <div className="min-h-screen bg-navy-950 flex items-center justify-center px-4 py-12">
+      <div className="min-h-screen bbt-screen flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-2xl">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
@@ -372,7 +374,7 @@ export default function AssessmentPage({ params }: Props): React.JSX.Element {
   // ── Results screen ───────────────────────────────────────────────────────────
   if (phase === 'result' && result) {
     return (
-      <div className="min-h-screen bg-navy-950 flex items-center justify-center px-4 py-12">
+      <div className="min-h-screen bbt-screen flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-lg space-y-6">
           <div className="rounded-2xl border border-navy-700 bg-navy-900 p-10 text-center space-y-6">
             <CircularScore score={result.score} passed={result.passed} />

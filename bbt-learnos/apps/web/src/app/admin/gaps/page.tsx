@@ -1,8 +1,9 @@
 'use client';
 import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+
 import { adminApi } from '@/lib/admin';
 import type { GapRow } from '@/lib/admin';
+import { useAuthStore } from '@/lib/store';
 
 const TYPE_STYLE: Record<GapRow['type'], { label: string; color: string }> = {
   zero_results: { label: 'Zero results', color: 'text-red-400 bg-red-900/30' },

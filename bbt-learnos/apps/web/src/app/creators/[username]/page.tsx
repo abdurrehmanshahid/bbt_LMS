@@ -1,7 +1,11 @@
-import React from 'react';
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
+import React from 'react';
+
+import { AdSlot } from '@/components/AdSlot';
+import { CreatorContentGrid } from './CreatorContentGrid';
 import { FollowButton } from './FollowButton';
+import { TIER_LABEL, TIER_COLOR, TIER_BADGE_BG } from '@/lib/constants';
 
 interface ContentPreview {
   id: string;
@@ -72,17 +76,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-const TIER_LABEL: Record<number, string> = { 1: 'Emerging', 2: 'Verified', 3: 'Expert Mentor' };
-const TIER_COLOR: Record<number, string> = {
-  1: 'text-slate-400',
-  2: 'text-blue-400',
-  3: 'text-[#F7941D]',
-};
-const TIER_BADGE_BG: Record<number, string> = {
-  1: 'bg-slate-700',
-  2: 'bg-blue-500/20',
-  3: 'bg-[#F7941D]/20',
-};
 
 export default async function CreatorProfilePage({ params }: Props): Promise<React.JSX.Element> {
   const creator = await getCreator(params.username);
@@ -149,42 +142,17 @@ export default async function CreatorProfilePage({ params }: Props): Promise<Rea
           <FollowButton creatorId={creator.id} initialFollowing={creator.isFollowing} />
         </section>
 
-        {/* Content grid */}
+        {/* Content grid with tabs + track gating */}
         {creator.content.length > 0 && (
           <section>
             <h2 className="text-2xl font-bold text-white mb-6">Content</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {creator.content.map((item) => (
-                <article
-                  key={item.id}
-                  className="group rounded-xl border border-slate-700 bg-slate-900 overflow-hidden hover:border-[#F7941D]/50 transition-colors"
-                >
-                  <div className="aspect-video bg-slate-800 relative">
-                    {item.thumbnailUrl
-                      ? <img src={item.thumbnailUrl} alt={item.title} className="h-full w-full object-cover" />
-                      : <div className="flex h-full items-center justify-center text-slate-600 text-4xl">▶</div>}
-                    {item.duration && (
-                      <span className="absolute bottom-2 right-2 rounded bg-black/75 px-1.5 py-0.5 text-xs text-white">
-                        {Math.floor(item.duration / 60)}:{String(item.duration % 60).padStart(2, '0')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="p-4">
-                    <p className="text-xs text-[#F7941D]">{item.track.icon} {item.track.title}</p>
-                    <h3 className="mt-1 text-sm font-semibold text-white line-clamp-2 group-hover:text-[#F7941D] transition-colors">
-                      {item.title}
-                    </h3>
-                    <div className="mt-2 flex items-center gap-3 text-xs text-slate-500">
-                      <span>{item.viewCount.toLocaleString()} views</span>
-                      <span>💬 {item._count.comments}</span>
-                      <span>⚡ {item._count.reactions}</span>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
+            <CreatorContentGrid content={creator.content} />
           </section>
         )}
+      </div>
+
+      <div className="mx-auto max-w-5xl px-4 pb-8">
+        <AdSlot slot="profile-bottom" className="w-full" />
       </div>
 
       <script

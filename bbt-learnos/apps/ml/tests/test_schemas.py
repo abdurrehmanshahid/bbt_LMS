@@ -1,6 +1,8 @@
 """Validate that schema models parse and serialise correctly."""
 import pytest
-from schemas import ContentItem, FeedBucket, FeedRequest, FeedResponse, RecommendRequest
+from pydantic import ValidationError
+
+from schemas import ContentItem, FeedBucket, FeedRequest, RecommendRequest
 
 
 def test_content_item_score_clamped():
@@ -18,9 +20,9 @@ def test_feed_request_defaults():
 
 
 def test_feed_request_limit_bounds():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         FeedRequest(learnerId="u1", trackId="t1", limit=0)
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         FeedRequest(learnerId="u1", trackId="t1", limit=51)
 
 

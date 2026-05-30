@@ -1,9 +1,11 @@
 'use client';
-import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+import { useState, useCallback } from 'react';
+
 import { adminApi } from '@/lib/admin';
-import type { UserRow, UserDetail, SuspendDuration } from '@/lib/admin';
+import type { UserRow, UserDetail, SuspendDuration, EnrollmentPlan, UserRole } from '@/lib/admin';
+import { getTracks } from '@/lib/api';
+import { useAuthStore } from '@/lib/store';
 
 const ROLE_COLOR: Record<string, string> = {
   ADMIN: 'bg-orange-900/40 text-orange-300',
@@ -24,6 +26,8 @@ function UserDetailPanel({
 }): React.JSX.Element {
   const qc = useQueryClient();
   const [suspendDays, setSuspendDays] = useState<SuspendDuration>(7);
+  const [enrollTrackId, setEnrollTrackId] = useState('');
+  const [enrollPlan, setEnrollPlan] = useState<EnrollmentPlan>('MONTHLY');
   const [actionMsg, setActionMsg] = useState('');
 
   const { data, isLoading } = useQuery<UserDetail>({
@@ -38,6 +42,33 @@ function UserDetailPanel({
       void qc.invalidateQueries({ queryKey: ['admin-users'] });
       void qc.invalidateQueries({ queryKey: ['admin-user', userId] });
       setActionMsg('Action applied.');
+      setTimeout(() => setActionMsg(''), 3000);
+    },
+  });
+
+  const { data: tracks = [] } = useQuery({
+    queryKey: ['admin-user-track-options'],
+    queryFn: getTracks,
+    staleTime: 5 * 60_000,
+  });
+
+  const updateUserMut = useMutation({
+    mutationFn: (payload: { isActive?: boolean; emailVerified?: boolean; role?: UserRole }) =>
+      adminApi.updateUser(token, userId, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin-users'] });
+      void qc.invalidateQueries({ queryKey: ['admin-user', userId] });
+      setActionMsg('User updated.');
+      setTimeout(() => setActionMsg(''), 3000);
+    },
+  });
+
+  const enrollMut = useMutation({
+    mutationFn: () => adminApi.enrollUser(token, userId, { trackId: enrollTrackId, plan: enrollPlan }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['admin-users'] });
+      void qc.invalidateQueries({ queryKey: ['admin-user', userId] });
+      setActionMsg('Learner enrollment updated.');
       setTimeout(() => setActionMsg(''), 3000);
     },
   });
@@ -86,22 +117,69 @@ function UserDetailPanel({
               </div>
 
               {/* Enrollments */}
-              {data.enrollments.length > 0 && (
-                <div>
-                  <p className="text-xs font-mono text-navy-400 uppercase tracking-wider mb-2">Enrollments</p>
+              <div>
+                <p className="text-xs font-mono text-navy-400 uppercase tracking-wider mb-2">Enrollments</p>
+                {data.enrollments.length > 0 ? (
                   <div className="space-y-1">
-                    {data.enrollments.map((e, i) => (
-                      <div key={i} className="flex items-center justify-between text-sm py-1.5 border-b border-navy-800">
+                    {data.enrollments.map((e) => (
+                      <div key={e.trackId} className="flex items-center justify-between gap-3 text-sm py-1.5 border-b border-navy-800">
                         <span className="text-navy-300">{e.trackTitle}</span>
-                        <div className="flex gap-2 text-xs font-mono">
+                        <div className="flex items-center gap-2 text-xs font-mono">
                           <span className="text-navy-500">{e.plan}</span>
                           <span className={`${e.status === 'ACTIVE' ? 'text-green-400' : 'text-navy-500'}`}>{e.status}</span>
+                          {e.status === 'ACTIVE' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void adminApi.updateEnrollment(token, userId, e.trackId, { status: 'CANCELLED' })
+                                  .then(() => {
+                                    void qc.invalidateQueries({ queryKey: ['admin-user', userId] });
+                                    void qc.invalidateQueries({ queryKey: ['admin-users'] });
+                                  });
+                              }}
+                              className="text-red-400 hover:text-red-300"
+                            >
+                              Unenroll
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
                   </div>
+                ) : (
+                  <p className="text-sm text-navy-500">No active course history yet.</p>
+                )}
+
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_110px_auto]">
+                  <select
+                    value={enrollTrackId}
+                    onChange={(e) => setEnrollTrackId(e.target.value)}
+                    className="rounded-lg border border-navy-600 bg-navy-800 text-white text-xs px-2 py-2"
+                  >
+                    <option value="">Select course</option>
+                    {tracks.map((track) => (
+                      <option key={track.id} value={track.id}>{track.title}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={enrollPlan}
+                    onChange={(e) => setEnrollPlan(e.target.value as EnrollmentPlan)}
+                    className="rounded-lg border border-navy-600 bg-navy-800 text-white text-xs px-2 py-2"
+                  >
+                    <option value="MONTHLY">Monthly</option>
+                    <option value="ANNUAL">Annual</option>
+                    <option value="FREE">Free</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => enrollMut.mutate()}
+                    disabled={!enrollTrackId || enrollMut.isPending}
+                    className="rounded-lg bg-orange-500 px-3 py-2 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+                  >
+                    Enroll
+                  </button>
                 </div>
-              )}
+              </div>
 
               {/* Payments */}
               {data.payments.length > 0 && (
@@ -148,6 +226,16 @@ function UserDetailPanel({
               <div className="rounded-xl bg-navy-950 border border-navy-700 p-4 space-y-3">
                 <p className="text-xs font-mono text-navy-400 uppercase tracking-wider">Actions</p>
                 <div className="flex flex-wrap gap-2">
+                  {!data.emailVerified && (
+                    <button
+                      type="button"
+                      onClick={() => updateUserMut.mutate({ emailVerified: true })}
+                      disabled={updateUserMut.isPending}
+                      className="rounded-lg border border-green-700 px-3 py-1.5 text-xs font-semibold text-green-400 hover:bg-green-900/30 disabled:opacity-50 transition-colors"
+                    >
+                      Verify Email
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => actionMut.mutate({ action: 'WARN' })}
@@ -207,11 +295,19 @@ function UserDetailPanel({
 
 export default function UsersPage(): React.JSX.Element {
   const { accessToken } = useAuthStore();
+  const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [role, setRole] = useState('');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [newUser, setNewUser] = useState({
+    name: '',
+    email: '',
+    password: 'Password123!',
+    role: 'LEARNER' as UserRole,
+  });
+  const [createMsg, setCreateMsg] = useState('');
 
   const params = useCallback(() => {
     const p: Record<string, string> = { page: String(page), limit: '20' };
@@ -227,14 +323,84 @@ export default function UsersPage(): React.JSX.Element {
     enabled: !!accessToken,
   });
 
+  const createUserMut = useMutation({
+    mutationFn: () => adminApi.createUser(accessToken!, { ...newUser, emailVerified: true }),
+    onSuccess: () => {
+      setNewUser({ name: '', email: '', password: 'Password123!', role: 'LEARNER' });
+      setCreateMsg('User created. Use View to enroll learners into a course.');
+      void qc.invalidateQueries({ queryKey: ['admin-users'] });
+      setTimeout(() => setCreateMsg(''), 4000);
+    },
+    onError: (error) => {
+      const message = error instanceof Error ? error.message : '';
+      if (message.includes('EMAIL_ALREADY_EXISTS')) {
+        setCreateMsg('This email already has an account. Search for it below, then use View to manage enrollment.');
+        return;
+      }
+      setCreateMsg(message || 'Could not create user. Check the details and try again.');
+    },
+  });
+
+  function submitCreateUser(event: React.FormEvent<HTMLFormElement>): void {
+    event.preventDefault();
+    if (!newUser.email || !newUser.name || newUser.password.length < 8) {
+      setCreateMsg('Name, email, and an 8+ character password are required.');
+      return;
+    }
+    createUserMut.mutate();
+  }
+
   const totalPages = data ? Math.ceil(data.total / 20) : 1;
 
   return (
     <div className="p-6 lg:p-8 space-y-6">
       <div>
         <h1 className="font-display text-2xl text-white">Users</h1>
-        <p className="text-sm text-navy-400 mt-1">Search and manage platform users.</p>
+        <p className="text-sm text-navy-400 mt-1">Create accounts, verify access, suspend users, and assign learner enrollments.</p>
       </div>
+
+      <form onSubmit={submitCreateUser} className="rounded-2xl border border-navy-700 bg-navy-800 p-4 space-y-3" noValidate>
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr_150px_150px]">
+          <input
+            value={newUser.name}
+            onChange={(e) => setNewUser((current) => ({ ...current, name: e.target.value }))}
+            placeholder="Full name"
+            className="rounded-lg border border-navy-600 bg-navy-900 text-white text-sm px-3 py-2 focus:outline-none focus:border-orange-500"
+          />
+          <input
+            type="email"
+            value={newUser.email}
+            onChange={(e) => setNewUser((current) => ({ ...current, email: e.target.value }))}
+            placeholder="email@example.com"
+            className="rounded-lg border border-navy-600 bg-navy-900 text-white text-sm px-3 py-2 focus:outline-none focus:border-orange-500"
+          />
+          <select
+            value={newUser.role}
+            onChange={(e) => setNewUser((current) => ({ ...current, role: e.target.value as UserRole }))}
+            className="rounded-lg border border-navy-600 bg-navy-900 text-white text-sm px-3 py-2 focus:outline-none focus:border-orange-500"
+          >
+            <option value="LEARNER">Learner</option>
+            <option value="CREATOR">Creator</option>
+            <option value="ADMIN">Admin</option>
+          </select>
+          <button
+            type="submit"
+            disabled={createUserMut.isPending}
+            className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:opacity-50"
+          >
+            Create User
+          </button>
+        </div>
+        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+          <input
+            value={newUser.password}
+            onChange={(e) => setNewUser((current) => ({ ...current, password: e.target.value }))}
+            placeholder="Temporary password"
+            className="rounded-lg border border-navy-600 bg-navy-900 text-white text-sm px-3 py-2 focus:outline-none focus:border-orange-500"
+          />
+          <p className="self-center text-xs text-navy-400">{createMsg}</p>
+        </div>
+      </form>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3">

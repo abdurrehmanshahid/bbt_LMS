@@ -1,3 +1,4 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import React from 'react';
 import {
   View,
@@ -7,9 +8,9 @@ import {
   StyleSheet,
   ActivityIndicator,
 } from 'react-native';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+
 import { learnerApi, type Notification } from '@/lib/learner';
+import { useAuthStore } from '@/lib/store';
 
 const CATEGORY_COLOR: Record<string, string> = {
   STREAK: '#f59e0b',

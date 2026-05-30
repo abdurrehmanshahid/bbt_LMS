@@ -1,10 +1,12 @@
 'use client';
+import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+
+import { BrandLogo } from '@/components/BrandLogo';
 import { authApi } from '@/lib/auth';
 import { useAuthStore } from '@/lib/store';
 
@@ -22,6 +24,14 @@ const ERROR_MESSAGES: Record<string, string> = {
   EMAIL_NOT_VERIFIED: 'Please verify your email before signing in.',
 };
 
+function defaultRouteForRole(role: string): string {
+  if (role === 'ADMIN') return '/admin/health';
+  if (role === 'CREATOR') return '/creator/dashboard';
+  if (role === 'EMPLOYER') return '/employer/talent';
+  if (role === 'FRANCHISE_OWNER') return '/franchise/dashboard';
+  return '/dashboard';
+}
+
 export default function LoginPage(): React.JSX.Element {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -30,7 +40,7 @@ export default function LoginPage(): React.JSX.Element {
   const [serverError, setServerError] = useState<string | null>(null);
   const [lockUntil, setLockUntil] = useState<string | null>(null);
 
-  const returnUrl = searchParams.get('returnUrl') ?? '/dashboard';
+  const returnUrl = searchParams.get('returnUrl');
   const apiBase = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:4000/api';
 
   const {
@@ -45,7 +55,7 @@ export default function LoginPage(): React.JSX.Element {
     try {
       const res = await authApi.login({ email: data.email, password: data.password, ...(data.rememberMe ? { rememberMe: true as const } : {}) });
       setAuth(res.user, res.accessToken);
-      router.push(returnUrl);
+      router.push(returnUrl ?? defaultRouteForRole(res.user.role));
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
       if (msg.includes('ACCOUNT_LOCKED') && msg.includes('|')) {
@@ -60,15 +70,12 @@ export default function LoginPage(): React.JSX.Element {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-navy-950 px-4 py-12">
+    <div className="min-h-screen bbt-screen flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <span className="font-display text-2xl text-white">BBT</span>
-            <span className="font-mono text-xs text-orange-500 border border-orange-500 px-1.5 py-0.5 rounded">LearnOS</span>
-          </Link>
-          <h1 className="mt-4 font-display text-3xl text-white">Welcome back</h1>
-          <p className="mt-1 text-sm text-navy-400">
+          <BrandLogo priority />
+          <h1 className="mt-4 font-display text-3xl bbt-title">Welcome back</h1>
+          <p className="mt-1 text-sm bbt-copy">
             No account yet?{' '}
             <Link href="/auth/signup" className="text-orange-400 hover:text-orange-300 transition-colors">
               Create one free
@@ -100,7 +107,15 @@ export default function LoginPage(): React.JSX.Element {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
+          <form
+            method="post"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleSubmit(onSubmit)(event);
+            }}
+            noValidate
+            className="space-y-5"
+          >
             {serverError && (
               <div role="alert" className="rounded-lg bg-red-900/40 border border-red-700 px-4 py-3 text-sm text-red-300">
                 {serverError}

@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import React from 'react';
 import {
   View,
@@ -8,9 +9,9 @@ import {
   TouchableOpacity,
   Linking,
 } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/store';
+
 import { learnerApi, type BadgeSummary } from '@/lib/learner';
+import { useAuthStore } from '@/lib/store';
 
 function BadgeCard({ badge }: { badge: BadgeSummary }): React.JSX.Element {
   return (

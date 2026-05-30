@@ -1,8 +1,6 @@
 """Unit tests for the CF recommender (no DB required)."""
-import pytest
-from services.recommender import CollaborativeRecommender
 from schemas import FeedBucket
-
+from services.recommender import CollaborativeRecommender
 
 ITEMS = [
     {"id": "c1", "title": "Intro to Python", "type": "LECTURE", "trackId": "t1", "moduleId": "m1"},

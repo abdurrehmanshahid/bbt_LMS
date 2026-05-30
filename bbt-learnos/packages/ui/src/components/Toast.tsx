@@ -1,5 +1,6 @@
-import * as React from 'react';
 import * as ToastPrimitive from '@radix-ui/react-toast';
+import * as React from 'react';
+
 import { cn } from '../utils/cn';
 
 export type ToastVariant = 'success' | 'error' | 'warning' | 'info';

@@ -5,17 +5,22 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+
 import { NotificationService } from '../notification/notification.service';
+import { PrismaService } from '../prisma/prisma.service';
+
+import { CommentModerationService } from './comment-moderation.service';
 
 const COMMENT_MAX_LEN = 1000;
 const VALID_REACTIONS = new Set(['LIKE', 'FIRE', 'MIND_BLOWN']);
+const VALID_REPORT_REASONS = new Set(['SPAM', 'HATE', 'HARASSMENT', 'OFF_TOPIC', 'OTHER']);
 
 @Injectable()
 export class SocialService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
+    private readonly commentMod: CommentModerationService,
   ) {}
 
   // ── Follow ───────────────────────────────────────────────────────────────────
@@ -124,6 +129,7 @@ export class SocialService {
         contentId,
         parentId: null,
         isDeleted: false,
+        isHidden: false,
         ...(cursor ? { createdAt: { lt: new Date(cursor) } } : {}),
       },
       orderBy: { createdAt: 'desc' },
@@ -132,7 +138,7 @@ export class SocialService {
         id: true, body: true, createdAt: true, updatedAt: true,
         user: { select: { id: true, name: true, avatarUrl: true, creatorProfile: { select: { displayName: true, tier: true } } } },
         replies: {
-          where: { isDeleted: false },
+          where: { isDeleted: false, isHidden: false },
           orderBy: { createdAt: 'asc' },
           take: 10,
           select: {
@@ -167,16 +173,24 @@ export class SocialService {
       if (parent.parentId) throw new BadRequestException('Cannot reply to a reply');
     }
 
+    const hasProfanity = this.commentMod.containsProfanity(body);
+
     const comment = await this.prisma.contentComment.create({
-      data: { contentId, userId, body: body.trim(), ...(parentId ? { parentId } : {}) },
+      data: {
+        contentId,
+        userId,
+        body: body.trim(),
+        ...(parentId ? { parentId } : {}),
+        ...(hasProfanity ? { isHidden: true, hiddenReason: 'PROFANITY' } : {}),
+      },
       select: {
-        id: true, body: true, createdAt: true, parentId: true,
+        id: true, body: true, createdAt: true, parentId: true, isHidden: true,
         user: { select: { id: true, name: true, avatarUrl: true, creatorProfile: { select: { displayName: true, tier: true } } } },
       },
     });
 
-    // Notify content creator (not if they commented on their own content)
-    if (content.creatorId !== userId) {
+    // Notify content creator only for visible comments
+    if (content.creatorId !== userId && !hasProfanity) {
       void this.notifications.sendPush({
         userId: content.creatorId,
         title: 'New comment on your content',
@@ -187,6 +201,37 @@ export class SocialService {
     }
 
     return comment;
+  }
+
+  async reportComment(reporterId: string, commentId: string, reason: string) {
+    if (!VALID_REPORT_REASONS.has(reason)) throw new BadRequestException('Invalid report reason');
+
+    const comment = await this.prisma.contentComment.findUnique({
+      where: { id: commentId },
+      select: { id: true, isDeleted: true, isHidden: true, reportCount: true },
+    });
+    if (!comment || comment.isDeleted) throw new NotFoundException('Comment not found');
+
+    const existing = await this.prisma.commentReport.findUnique({
+      where: { commentId_reporterId: { commentId, reporterId } },
+    });
+    if (existing) throw new ConflictException('Already reported this comment');
+
+    const newCount = comment.reportCount + 1;
+    const shouldHide = newCount >= this.commentMod.reportThreshold;
+
+    await this.prisma.$transaction([
+      this.prisma.commentReport.create({ data: { commentId, reporterId, reason } }),
+      this.prisma.contentComment.update({
+        where: { id: commentId },
+        data: {
+          reportCount: { increment: 1 },
+          ...(shouldHide && !comment.isHidden ? { isHidden: true, hiddenReason: 'REPORTED' } : {}),
+        },
+      }),
+    ]);
+
+    return { reported: true, commentId };
   }
 
   async deleteComment(userId: string, commentId: string) {

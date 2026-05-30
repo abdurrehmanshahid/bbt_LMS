@@ -1,6 +1,6 @@
+import { Tabs } from 'expo-router';
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Tabs } from 'expo-router';
 
 export default function CreatorLayout(): React.JSX.Element {
   return (

@@ -1,31 +1,35 @@
+import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
-import { EventEmitterModule } from '@nestjs/event-emitter';
-import { BullModule } from '@nestjs/bullmq';
-import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+
+import { AdminModule } from './admin/admin.module';
+import { AnalyticsModule } from './analytics/analytics.module';
+import { AssessmentModule } from './assessment/assessment.module';
+import { AuthModule } from './auth/auth.module';
+import { CohortModule } from './cohort/cohort.module';
+import { ContentModule } from './content/content.module';
+import { EmailModule } from './email/email.module';
+import { EmployerModule } from './employer/employer.module';
+import { EnrollmentModule } from './enrollment/enrollment.module';
+import { FranchiseModule } from './franchise/franchise.module';
+import { KeysModule } from './keys/keys.module';
+import { LiveSessionModule } from './live-session/live-session.module';
+import { LtiModule } from './lti/lti.module';
+import { MentorshipModule } from './mentorship/mentorship.module';
+import { ModerationModule } from './moderation/moderation.module';
+import { Neo4jModule } from './neo4j/neo4j.module';
+import { NotificationModule } from './notification/notification.module';
+import { PayoutModule } from './payout/payout.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
-import { EmailModule } from './email/email.module';
-import { KeysModule } from './keys/keys.module';
-import { AuthModule } from './auth/auth.module';
-import { TrackModule } from './track/track.module';
-import { ContentModule } from './content/content.module';
-import { AssessmentModule } from './assessment/assessment.module';
-import { EnrollmentModule } from './enrollment/enrollment.module';
-import { CohortModule } from './cohort/cohort.module';
-import { NotificationModule } from './notification/notification.module';
 import { SearchModule } from './search/search.module';
-import { AdminModule } from './admin/admin.module';
-import { EmployerModule } from './employer/employer.module';
-import { LtiModule } from './lti/lti.module';
-import { ModerationModule } from './moderation/moderation.module';
-import { AnalyticsModule } from './analytics/analytics.module';
-import { LiveSessionModule } from './live-session/live-session.module';
-import { MentorshipModule } from './mentorship/mentorship.module';
+import { SkillGraphModule } from './skill-graph/skill-graph.module';
 import { SocialModule } from './social/social.module';
-import { FranchiseModule } from './franchise/franchise.module';
+import { TrackModule } from './track/track.module';
 
 @Module({
   imports: [
@@ -43,6 +47,7 @@ import { FranchiseModule } from './franchise/franchise.module';
     }),
     PrismaModule,
     RedisModule,
+    Neo4jModule,
     EmailModule,
     KeysModule,
     AuthModule,
@@ -62,6 +67,8 @@ import { FranchiseModule } from './franchise/franchise.module';
     MentorshipModule,
     SocialModule,
     FranchiseModule,
+    PayoutModule,
+    SkillGraphModule,
   ],
   providers: [
     {

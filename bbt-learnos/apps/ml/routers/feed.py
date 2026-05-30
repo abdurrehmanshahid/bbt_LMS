@@ -1,8 +1,6 @@
-import json
-from datetime import datetime, timezone
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings

@@ -1,3 +1,4 @@
+import { HttpService } from '@nestjs/axios';
 import {
   Injectable,
   Logger,
@@ -6,12 +7,16 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../prisma/prisma.service';
-import { HttpService } from '@nestjs/axios';
-import { firstValueFrom } from 'rxjs';
 import * as jose from 'jose';
+import { firstValueFrom } from 'rxjs';
+
+import { PrismaService } from '../prisma/prisma.service';
+
+
 import type { LtiClaims, AgsScore } from './lti.interfaces';
 import { LTI_VERSION } from './lti.interfaces';
+
+type DecodedLtiClaims = Omit<LtiClaims, 'aud'> & { aud: string | string[] };
 
 @Injectable()
 export class LtiService {
@@ -105,10 +110,11 @@ export class LtiService {
     claims: LtiClaims;
   }> {
     // Decode header to find key id and issuer
-    const decoded = jose.decodeJwt(idToken) as LtiClaims;
+    const decoded = jose.decodeJwt(idToken) as unknown as DecodedLtiClaims;
     const iss = decoded.iss;
     const aud = Array.isArray(decoded.aud) ? decoded.aud[0] : decoded.aud;
-    if (!iss || !aud) throw new BadRequestException('Invalid LTI token: missing iss/aud');
+    if (!iss || typeof aud !== 'string') throw new BadRequestException('Invalid LTI token: missing iss/aud');
+    const claims: LtiClaims = { ...decoded, aud };
 
     const platform = await this.prisma.ltiPlatform.findFirst({
       where: { clientId: aud, isActive: true },
@@ -133,7 +139,7 @@ export class LtiService {
     const dlSettings = decoded['https://purl.imsglobal.org/spec/lti-dl/claim/deep_linking_settings'];
 
     // Find or create BBT user from LTI sub
-    const learnerId = await this.resolveUser(decoded, platform.clientId);
+    const learnerId = await this.resolveUser(claims, platform.clientId);
 
     // Resolve custom track claim
     const custom = decoded['https://purl.imsglobal.org/spec/lti/claim/custom'];
@@ -159,7 +165,7 @@ export class LtiService {
       trackId,
       lineItemUrl: agsClaim?.lineitem ?? null,
       deepLinkReturnUrl: dlSettings?.deep_link_return_url ?? null,
-      claims: decoded,
+      claims,
     };
   }
 

@@ -1,11 +1,13 @@
 import {
   Controller, Get, Post, Delete, Param, Body, Query, UseGuards, HttpCode, HttpStatus,
 } from '@nestjs/common';
-import { SocialService } from './social.service';
+
+import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OptionalJwtGuard } from '../common/guards/optional-jwt.guard';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
-import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+
+import { SocialService } from './social.service';
 
 // ── Public endpoints (no auth required) ─────────────────────────────────────
 
@@ -99,6 +101,16 @@ export class ContentInteractionController {
   @HttpCode(HttpStatus.OK)
   deleteComment(@CurrentUser() user: JwtPayload, @Param('commentId') commentId: string) {
     return this.socialService.deleteComment(user.sub, commentId);
+  }
+
+  @Post('comments/:commentId/report')
+  @UseGuards(JwtAuthGuard)
+  reportComment(
+    @CurrentUser() user: JwtPayload,
+    @Param('commentId') commentId: string,
+    @Body() body: { reason: string },
+  ) {
+    return this.socialService.reportComment(user.sub, commentId, body.reason);
   }
 
   // Reactions

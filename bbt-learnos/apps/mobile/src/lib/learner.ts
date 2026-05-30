@@ -1,4 +1,4 @@
-import { authedFetch, authedPost } from './api';
+import { authedFetch, authedPost, publicFetch } from './api';
 
 export interface FeedItem {
   id: string;
@@ -6,6 +6,7 @@ export interface FeedItem {
   type: string;
   track: string;
   thumbnailUrl: string | null;
+  muxPlaybackId?: string | null;
   durationSeconds: number;
   watched: boolean;
   saved: boolean;
@@ -76,6 +77,28 @@ export interface BadgeSummary {
   verifyUrl: string;
 }
 
+export interface TrendingTag {
+  id: string;
+  name: string;
+  slug: string;
+  count: number;
+  isChallenge: boolean;
+}
+
+export interface PinnedChallenge {
+  id: string;
+  title: string;
+  description: string;
+  tag: { name: string; slug: string };
+  startsAt: string;
+  endsAt: string | null;
+}
+
+export interface TrendingData {
+  tags: TrendingTag[];
+  pinnedChallenge: PinnedChallenge | null;
+}
+
 interface MockModuleDef {
   id: string;
   title: string;
@@ -98,6 +121,25 @@ interface MockTrackDef {
   title: string;
   shortLabel: string;
   modules: MockModuleDef[];
+}
+
+interface PublicShortItem {
+  id: string;
+  title: string;
+  type: 'REEL';
+  track: { title: string; slug: string };
+  thumbnailUrl: string | null;
+  muxPlaybackId: string | null;
+  duration: number | null;
+  creator: {
+    name: string;
+    creatorProfile: { displayName: string } | null;
+  };
+}
+
+interface PublicShortPage {
+  items: PublicShortItem[];
+  nextCursor: string | null;
 }
 
 const DEV_LEARNER_TOKEN = 'dev-openmeup-token';
@@ -311,6 +353,7 @@ function buildFeed(): { items: FeedItem[]; nextCursor: string | null } {
     type: module.type,
     track: module.shortLabel,
     thumbnailUrl: null,
+    muxPlaybackId: null,
     durationSeconds: module.durationMinutes * 60,
     watched: module.watched,
     saved: module.saved,
@@ -386,6 +429,26 @@ function devGetFeed(token: string, cursor?: string): Promise<{ items: FeedItem[]
   return Promise.resolve(clone(buildFeed()));
 }
 
+async function getPublicShorts(cursor?: string): Promise<{ items: FeedItem[]; nextCursor: string | null }> {
+  const page = await publicFetch<PublicShortPage>('/feed/shorts', cursor ? { cursor } : undefined);
+  return {
+    nextCursor: page.nextCursor,
+    items: page.items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      type: item.type,
+      track: item.track.title,
+      thumbnailUrl: item.thumbnailUrl,
+      muxPlaybackId: item.muxPlaybackId,
+      durationSeconds: item.duration ?? 60,
+      watched: false,
+      saved: false,
+      completionRate: 0,
+      creatorName: item.creator.creatorProfile?.displayName ?? item.creator.name,
+    })),
+  };
+}
+
 function devGetTrack(token: string, trackId: string): Promise<TrackDetail> {
   void token;
   return Promise.resolve(clone(buildTrack(trackId)));
@@ -425,15 +488,30 @@ function devGetPortfolio(token: string): Promise<{ badges: BadgeSummary[]; absor
   return Promise.resolve(clone(buildPortfolio()));
 }
 
+function devGetTrending(): Promise<TrendingData> {
+  return Promise.resolve({
+    pinnedChallenge: {
+      id: 'challenge-ai-helper',
+      title: 'Build an AI helper in 60 seconds',
+      description: 'Post one short reel showing a practical helper, prompt, or workflow.',
+      tag: { name: 'AIHelperChallenge', slug: 'aihelperchallenge' },
+      startsAt: '2026-05-27T00:00:00.000Z',
+      endsAt: null,
+    },
+    tags: [
+      { id: 'tag-genai', name: 'GenAI', slug: 'genai', count: 42, isChallenge: false },
+      { id: 'tag-react', name: 'React', slug: 'react', count: 31, isChallenge: false },
+      { id: 'tag-ai-helper', name: 'AIHelperChallenge', slug: 'aihelperchallenge', count: 27, isChallenge: true },
+      { id: 'tag-career', name: 'CareerOS', slug: 'careeros', count: 18, isChallenge: false },
+    ],
+  });
+}
+
 export const learnerApi = {
   getFeed: (token: string, cursor?: string) =>
     isDevLearnerToken(token)
       ? devGetFeed(token, cursor)
-      : authedFetch<{ items: FeedItem[]; nextCursor: string | null }>(
-          '/learner/feed',
-          token,
-          cursor ? { cursor } : undefined,
-        ),
+      : getPublicShorts(cursor),
 
   getTrack: (token: string, trackId: string) =>
     isDevLearnerToken(token)
@@ -469,4 +547,9 @@ export const learnerApi = {
     isDevLearnerToken(token)
       ? devGetPortfolio(token)
       : authedFetch<{ badges: BadgeSummary[]; absorptionReady: boolean }>('/learner/portfolio', token),
+
+  getTrending: (token: string) =>
+    isDevLearnerToken(token)
+      ? devGetTrending()
+      : publicFetch<TrendingData>('/trending'),
 };

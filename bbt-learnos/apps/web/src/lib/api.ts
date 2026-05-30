@@ -59,6 +59,65 @@ export interface TrackDetail extends TrackSummary {
   modules: ModuleSummary[];
 }
 
+export interface ShortFeedItem {
+  id: string;
+  type: 'REEL';
+  title: string;
+  description: string;
+  muxPlaybackId: string | null;
+  youtubeId: string | null;
+  duration: number | null;
+  thumbnailUrl: string | null;
+  tags: string[];
+  viewCount: number;
+  saveCount: number;
+  shareCount: number;
+  createdAt: string;
+  track: { title: string; slug: string; icon: string };
+  creator: {
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+    creatorProfile: { displayName: string; tier: number; isVerified: boolean } | null;
+  };
+}
+
+export interface ShortFeedPage {
+  items: ShortFeedItem[];
+  nextCursor: string | null;
+  pinnedChallenge?: PinnedChallenge | null;
+}
+
+export interface PinnedChallenge {
+  id: string;
+  title: string;
+  description: string;
+  tag: { name: string; slug: string };
+  startsAt: string;
+  endsAt: string | null;
+}
+
+export interface TrendingTag {
+  id: string;
+  name: string;
+  slug: string;
+  count: number;
+  isChallenge: boolean;
+}
+
+export interface TrendingPage {
+  tags: TrendingTag[];
+  pinnedChallenge: PinnedChallenge | null;
+}
+
+export interface TaggedShortFeedPage extends ShortFeedPage {
+  tag: { name: string; slug: string };
+}
+
+export interface HashtagSuggestions {
+  tags: string[];
+}
+
 // ─── API functions ────────────────────────────────────────────────────────────
 
 export function getTracks(): Promise<TrackSummary[]> {
@@ -67,4 +126,50 @@ export function getTracks(): Promise<TrackSummary[]> {
 
 export function getTrack(slug: string): Promise<TrackDetail> {
   return apiFetchRaw<TrackDetail>(`/tracks/${slug}`, { next: { revalidate: 3600 } });
+}
+
+export function getShortsFeed(cursor?: string): Promise<ShortFeedPage> {
+  return apiFetchRaw<ShortFeedPage>(`/feed/shorts${cursor ? `?cursor=${cursor}` : ''}`, {
+    next: { revalidate: 60 },
+  });
+}
+
+export function getTrending(): Promise<TrendingPage> {
+  return apiFetchRaw<TrendingPage>('/trending', { next: { revalidate: 300 } });
+}
+
+export function getTaggedShorts(slug: string, cursor?: string): Promise<TaggedShortFeedPage> {
+  const params = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  return apiFetchRaw<TaggedShortFeedPage>(`/tags/${encodeURIComponent(slug)}${params}`, {
+    next: { revalidate: 120 },
+  });
+}
+
+export function getHashtagSuggestions(trackId: string, token: string): Promise<HashtagSuggestions> {
+  return apiFetch<HashtagSuggestions>(`/creator/hashtag-suggestions?trackId=${encodeURIComponent(trackId)}`, token);
+}
+
+export function trackReelEvent(contentId: string, event: 'reel_view' | 'reel_complete' | 'reel_share'): Promise<void> {
+  return apiPost<void>('/analytics/reel-event', { contentId, event });
+}
+
+export interface TrackModuleOption {
+  id: string;
+  title: string;
+  order: number;
+  estimatedMinutes: number;
+}
+
+export interface TrackConceptOption {
+  id: string;
+  title: string;
+  order: number;
+}
+
+export function getTrackModules(trackId: string): Promise<TrackModuleOption[]> {
+  return apiFetchRaw<TrackModuleOption[]>(`/tracks-by-id/${trackId}/modules`);
+}
+
+export function getModuleConcepts(trackId: string, moduleId: string): Promise<TrackConceptOption[]> {
+  return apiFetchRaw<TrackConceptOption[]>(`/tracks-by-id/${trackId}/modules/${moduleId}/concepts`);
 }

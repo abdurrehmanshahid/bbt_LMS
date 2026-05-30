@@ -1,11 +1,26 @@
-const API = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:4000/api';
+const API = normalizeApiBase(process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:4000/api');
+
+function normalizeApiBase(url: string): string {
+  const trimmed = url.replace(/\/$/, '');
+  return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+}
+
+async function readErrorMessage(res: Response): Promise<string> {
+  try {
+    const data = await res.json() as { message?: unknown; error?: string; code?: string };
+    const raw = data.message ?? data.error ?? data.code;
+    return typeof raw === 'string' ? raw : JSON.stringify(raw);
+  } catch {
+    return res.statusText || 'Request failed';
+  }
+}
 
 async function authedFetch<T>(path: string, token: string): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
     credentials: 'include',
   });
-  if (!res.ok) throw new Error(`API error ${res.status}`);
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await readErrorMessage(res)}`);
   return res.json() as Promise<T>;
 }
 
@@ -17,7 +32,7 @@ async function authedPost<T>(path: string, token: string, body?: unknown): Promi
   };
   if (body !== undefined) init.body = JSON.stringify(body);
   const res = await fetch(`${API}${path}`, init);
-  if (!res.ok) throw new Error(`API error ${res.status}`);
+  if (!res.ok) throw new Error(`API error ${res.status}: ${await readErrorMessage(res)}`);
   return res.json() as Promise<T>;
 }
 
@@ -110,11 +125,62 @@ export interface PlaybackData {
   signedToken: string | null;
 }
 
+export interface EnrollmentRecord {
+  trackId: string;
+  plan: string;
+  status: string;
+  track: {
+    id: string;
+    slug: string;
+    title: string;
+    icon: string;
+    trackNumber: number;
+  };
+}
+
+export interface SocialFeedItem {
+  id: string;
+  type: string;
+  title: string;
+  description: string;
+  muxPlaybackId: string | null;
+  youtubeId: string | null;
+  thumbnailUrl: string | null;
+  duration: number | null;
+  tags: string[];
+  viewCount: number;
+  track: { title: string; slug: string; icon: string };
+  creator: {
+    id: string;
+    name: string;
+    avatarUrl: string | null;
+    creatorProfile: { displayName: string; tier: number; isVerified: boolean } | null;
+  };
+}
+
+export interface SocialFeedPage {
+  items: SocialFeedItem[];
+  nextCursor: string | null;
+}
+
+export interface EnrollFreeResult {
+  enrollmentId: string;
+}
+
 export const learnerApi = {
   getDashboard: (token: string) => authedFetch<DashboardData>('/learner/dashboard', token),
 
+  enrollFree: (token: string, trackId: string) =>
+    authedPost<EnrollFreeResult>('/learner/enroll/free', token, { trackId }),
+
+  getEnrollments: (token: string) =>
+    authedFetch<EnrollmentRecord[]>('/learner/enrollments', token),
+
   getFeed: (token: string, cursor?: string) =>
     authedFetch<FeedPage>(`/learner/feed${cursor ? `?cursor=${cursor}` : ''}`, token),
+
+  getSocialFeed: (token: string, cursor?: string) =>
+    authedFetch<SocialFeedPage>(`/social/feed${cursor ? `?cursor=${cursor}` : ''}`, token),
 
   getEnrolledTrack: (token: string, trackId: string) =>
     authedFetch<EnrolledTrack>(`/learner/track/${trackId}/modules`, token),

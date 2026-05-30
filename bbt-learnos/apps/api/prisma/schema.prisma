@@ -92,6 +92,17 @@ enum PsdaStatus {
   SUSPENDED
 }
 
+enum PayoutMethod {
+  STRIPE_CONNECT
+  BANK_TRANSFER
+}
+
+enum PayoutStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
 // ─── User & Profiles ─────────────────────────────────────────────────────────
 
 model User {
@@ -107,30 +118,34 @@ model User {
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
-  learnerProfile        LearnerProfile?
-  creatorProfile        CreatorProfile?
-  enrollments           Enrollment[]
-  assessments           Assessment[]
-  skillBadges           SkillBadge[]
-  payments              Payment[]
-  notifications         Notification[]
-  cohortMemberships     CohortMember[]
-  content               Content[]              @relation("ContentCreator")
-  moderationActions     ModerationRecord[]     @relation("ModerationAdmin")
-  franchise             Franchise?             @relation("FranchiseOwner")
-  opportunities         Opportunity[]
-  employerContactReqs   ContactRequest[]       @relation("EmployerContactRequests")
-  learnerContactReqs    ContactRequest[]       @relation("LearnerContactRequests")
-  staffAugRequests      StaffAugRequest[]
-  hireTeamRequests      HireTeamRequest[]
-  ltiLaunches           LtiLaunch[]            @relation("LtiLaunches")
-  liveSessions          LiveSession[]          @relation("SessionCreator")
-  mentorshipSlots       MentorshipSlot[]       @relation("SlotCreator")
-  mentorshipBookings    MentorshipBooking[]    @relation("MentorshipLearner")
-  following             Follow[]               @relation("Followers")
-  followers             Follow[]               @relation("Following")
-  comments              ContentComment[]
-  reactions             ContentReaction[]
+  learnerProfile      LearnerProfile?
+  creatorProfile      CreatorProfile?
+  enrollments         Enrollment[]
+  assessments         Assessment[]
+  skillBadges         SkillBadge[]
+  payments            Payment[]
+  notifications       Notification[]
+  cohortMemberships   CohortMember[]
+  content             Content[]           @relation("ContentCreator")
+  moderationActions   ModerationRecord[]  @relation("ModerationAdmin")
+  franchise           Franchise?          @relation("FranchiseOwner")
+  opportunities       Opportunity[]
+  employerContactReqs ContactRequest[]    @relation("EmployerContactRequests")
+  learnerContactReqs  ContactRequest[]    @relation("LearnerContactRequests")
+  staffAugRequests    StaffAugRequest[]
+  hireTeamRequests    HireTeamRequest[]
+  ltiLaunches         LtiLaunch[]         @relation("LtiLaunches")
+  liveSessions        LiveSession[]       @relation("SessionCreator")
+  mentorshipSlots     MentorshipSlot[]    @relation("SlotCreator")
+  mentorshipBookings  MentorshipBooking[] @relation("MentorshipLearner")
+  following           Follow[]            @relation("Followers")
+  followers           Follow[]            @relation("Following")
+  comments            ContentComment[]
+  commentReports      CommentReport[]     @relation("CommentReporter")
+  reactions           ContentReaction[]
+  createdChallenges   Challenge[]         @relation("ChallengeCreator")
+  creatorPayouts      CreatorPayout[]     @relation("CreatorPayouts")
+  processedPayouts    CreatorPayout[]     @relation("PayoutProcessor")
 
   @@index([email])
   @@index([role])
@@ -161,17 +176,19 @@ model LearnerProfile {
 }
 
 model CreatorProfile {
-  id                  String  @id @default(uuid())
-  userId              String  @unique
-  tier                Int     @default(1)
-  displayName         String  @unique
-  bio                 String  @default("")
-  qualityScore        Float   @default(0)
-  moderationFlags     Int     @default(0)
-  revenueSharePercent Float   @default(0)
+  id                     String    @id @default(uuid())
+  userId                 String    @unique
+  tier                   Int       @default(1)
+  displayName            String    @unique
+  bio                    String    @default("")
+  qualityScore           Float     @default(0)
+  moderationFlags        Int       @default(0)
+  revenueSharePercent    Float     @default(0)
   isVerified               Boolean   @default(false)
   verificationDetails      Json?
   tierUpgradeRequestedAt   DateTime?
+  stripeConnectAccountId   String?
+  stripeConnectOnboarded   Boolean   @default(false)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -184,24 +201,24 @@ model CreatorProfile {
 // ─── Tracks, Modules, Concepts ───────────────────────────────────────────────
 
 model Track {
-  id                String  @id @default(uuid())
-  slug              String  @unique
+  id                String   @id @default(uuid())
+  slug              String   @unique
   title             String
   description       String
   icon              String
-  trackNumber       Int     @unique
-  isActive          Boolean @default(true)
-  enrollmentCount   Int     @default(0)
-  avgCompletionRate Float   @default(0)
+  trackNumber       Int      @unique
+  isActive          Boolean  @default(true)
+  enrollmentCount   Int      @default(0)
+  avgCompletionRate Float    @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  modules     Module[]
-  enrollments Enrollment[]
-  content     Content[]
-  cohorts     Cohort[]
+  modules         Module[]
+  enrollments     Enrollment[]
+  content         Content[]
+  cohorts         Cohort[]
   currentLearners LearnerProfile[] @relation("CurrentTrack")
-  liveSessions LiveSession[]
+  liveSessions    LiveSession[]
 
   @@index([slug])
   @@index([isActive])
@@ -236,7 +253,7 @@ model Concept {
   description String
   order       Int
 
-  module       Module               @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  module        Module                @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   prerequisites ConceptPrerequisite[] @relation("ConceptPrerequisites")
   dependents    ConceptPrerequisite[] @relation("ConceptDependents")
   content       Content[]
@@ -273,6 +290,7 @@ model Content {
   description   String
   muxAssetId    String?
   muxPlaybackId String?
+  youtubeId     String?
   duration      Int?
   transcript    String?
   thumbnailUrl  String?
@@ -284,13 +302,14 @@ model Content {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
-  creator            User               @relation("ContentCreator", fields: [creatorId], references: [id])
-  track              Track              @relation(fields: [trackId], references: [id])
-  module             Module?            @relation(fields: [moduleId], references: [id])
-  concept            Concept?           @relation(fields: [conceptId], references: [id])
-  moderationRecords  ModerationRecord[]
-  comments           ContentComment[]
-  reactions          ContentReaction[]
+  creator           User               @relation("ContentCreator", fields: [creatorId], references: [id])
+  track             Track              @relation(fields: [trackId], references: [id])
+  module            Module?            @relation(fields: [moduleId], references: [id])
+  concept           Concept?           @relation(fields: [conceptId], references: [id])
+  moderationRecords ModerationRecord[]
+  comments          ContentComment[]
+  reactions         ContentReaction[]
+  tagMaps           ContentTagMap[]
 
   @@index([creatorId])
   @@index([trackId, status])
@@ -299,6 +318,59 @@ model Content {
   @@index([status])
   @@index([createdAt])
   @@map("content")
+}
+
+model ContentTag {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  useCount  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contentMaps ContentTagMap[]
+  challenges  Challenge[]
+
+  @@index([slug])
+  @@index([useCount])
+  @@map("content_tags")
+}
+
+model ContentTagMap {
+  contentId String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  content Content    @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  tag     ContentTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contentId, tagId])
+  @@index([contentId])
+  @@index([tagId])
+  @@index([createdAt])
+  @@map("content_tag_maps")
+}
+
+model Challenge {
+  id          String    @id @default(uuid())
+  tagId       String
+  title       String
+  description String    @default("")
+  startsAt    DateTime  @default(now())
+  endsAt      DateTime?
+  isPinned    Boolean   @default(true)
+  createdById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tag       ContentTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  createdBy User       @relation("ChallengeCreator", fields: [createdById], references: [id])
+
+  @@index([tagId])
+  @@index([isPinned, startsAt])
+  @@index([endsAt])
+  @@index([createdById])
+  @@map("challenges")
 }
 
 model ModerationRecord {
@@ -408,10 +480,10 @@ model Cohort {
 }
 
 model CohortMember {
-  cohortId    String
-  learnerId   String
-  joinedAt    DateTime @default(now())
-  isVisible   Boolean  @default(true)
+  cohortId  String
+  learnerId String
+  joinedAt  DateTime @default(now())
+  isVisible Boolean  @default(true)
 
   cohort  Cohort @relation(fields: [cohortId], references: [id], onDelete: Cascade)
   learner User   @relation(fields: [learnerId], references: [id], onDelete: Cascade)
@@ -425,15 +497,15 @@ model CohortMember {
 // ─── Payments ────────────────────────────────────────────────────────────────
 
 model Payment {
-  id                   String        @id @default(uuid())
+  id                   String         @id @default(uuid())
   userId               String
   amount               Float
-  currency             String        @default("PKR")
+  currency             String         @default("PKR")
   gateway              PaymentGateway
   gatewayTransactionId String
-  status               PaymentStatus @default(PENDING)
+  status               PaymentStatus  @default(PENDING)
   metadata             Json
-  createdAt            DateTime      @default(now())
+  createdAt            DateTime       @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -472,15 +544,15 @@ model Franchise {
 // ─── Notifications ───────────────────────────────────────────────────────────
 
 model Notification {
-  id      String   @id @default(uuid())
-  userId  String
-  type    String
-  title   String
-  body    String
-  data    Json?
-  isRead  Boolean  @default(false)
-  sentAt  DateTime @default(now())
-  readAt  DateTime?
+  id     String    @id @default(uuid())
+  userId String
+  type   String
+  title  String
+  body   String
+  data   Json?
+  isRead Boolean   @default(false)
+  sentAt DateTime  @default(now())
+  readAt DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -494,7 +566,7 @@ model Notification {
 model ContentGap {
   id             String   @id @default(uuid())
   query          String
-  type           String   // zero_results | low_engagement
+  type           String // zero_results | low_engagement
   count          Int      @default(1)
   suggestedTrack String?
   firstSeenAt    DateTime @default(now())
@@ -509,22 +581,22 @@ model ContentGap {
 // ─── Employer / Talent ────────────────────────────────────────────────────────
 
 model Opportunity {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   employerId  String
   title       String
   description String
   track       String
   location    String
-  isRemote    Boolean  @default(false)
-  type        String   // full-time | contract | internship
+  isRemote    Boolean   @default(false)
+  type        String // full-time | contract | internship
   salaryMin   Float?
   salaryMax   Float?
-  currency    String   @default("USD")
+  currency    String    @default("USD")
   closingDate DateTime?
-  isFeatured  Boolean  @default(false)
-  isApproved  Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isFeatured  Boolean   @default(false)
+  isApproved  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   employer User @relation(fields: [employerId], references: [id], onDelete: Cascade)
 
@@ -534,12 +606,12 @@ model Opportunity {
 }
 
 model ContactRequest {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   employerId  String
   learnerId   String
   message     String?
-  status      String   @default("PENDING")  // PENDING | ACCEPTED | DECLINED
-  createdAt   DateTime @default(now())
+  status      String    @default("PENDING") // PENDING | ACCEPTED | DECLINED
+  createdAt   DateTime  @default(now())
   respondedAt DateTime?
 
   employer User @relation("EmployerContactRequests", fields: [employerId], references: [id], onDelete: Cascade)
@@ -551,17 +623,17 @@ model ContactRequest {
 }
 
 model StaffAugRequest {
-  id           String   @id @default(uuid())
-  employerId   String
-  skills       String[]
-  duration     String   // 1_week | 1_month | 3_months | ongoing
-  startDate    DateTime
+  id              String   @id @default(uuid())
+  employerId      String
+  skills          String[]
+  duration        String // 1_week | 1_month | 3_months | ongoing
+  startDate       DateTime
   maxHourlyBudget Float
-  currency     String   @default("USD")
-  status       String   @default("SUBMITTED") // SUBMITTED | MATCHING | PROFILES_SENT | AGREED | ACTIVE | COMPLETED
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  currency        String   @default("USD")
+  status          String   @default("SUBMITTED") // SUBMITTED | MATCHING | PROFILES_SENT | AGREED | ACTIVE | COMPLETED
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   employer User @relation(fields: [employerId], references: [id], onDelete: Cascade)
 
@@ -572,7 +644,7 @@ model StaffAugRequest {
 model HireTeamRequest {
   id         String   @id @default(uuid())
   employerId String
-  roles      Json     // Array<{ role: string; skills: string[]; seniority: string }>
+  roles      Json // Array<{ role: string; skills: string[]; seniority: string }>
   status     String   @default("SUBMITTED")
   notes      String?
   createdAt  DateTime @default(now())
@@ -605,15 +677,15 @@ model LtiPlatform {
 }
 
 model LtiLaunch {
-  id             String   @id @default(uuid())
-  platformId     String
-  learnerId      String?
-  contextId      String
-  resourceLinkId String
-  lineItemUrl    String?
-  nrpsUrl        String?
+  id              String   @id @default(uuid())
+  platformId      String
+  learnerId       String?
+  contextId       String
+  resourceLinkId  String
+  lineItemUrl     String?
+  nrpsUrl         String?
   deepLinkingData Json?
-  launchedAt     DateTime @default(now())
+  launchedAt      DateTime @default(now())
 
   platform LtiPlatform @relation(fields: [platformId], references: [id], onDelete: Cascade)
   learner  User?       @relation("LtiLaunches", fields: [learnerId], references: [id])
@@ -636,21 +708,21 @@ model LtiNonce {
 // ─── Live Sessions (Daily.co) ────────────────────────────────────────────────
 
 model LiveSession {
-  id               String            @id @default(uuid())
-  creatorId        String
-  trackId          String
-  title            String
-  description      String?
-  scheduledAt      DateTime
-  status           LiveSessionStatus @default(SCHEDULED)
-  dailyRoomName    String?
-  dailyRoomUrl     String?
-  recordingUrl     String?
-  maxParticipants  Int               @default(100)
-  startedAt        DateTime?
-  endedAt          DateTime?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
+  id              String            @id @default(uuid())
+  creatorId       String
+  trackId         String
+  title           String
+  description     String?
+  scheduledAt     DateTime
+  status          LiveSessionStatus @default(SCHEDULED)
+  dailyRoomName   String?
+  dailyRoomUrl    String?
+  recordingUrl    String?
+  maxParticipants Int               @default(100)
+  startedAt       DateTime?
+  endedAt         DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   creator User  @relation("SessionCreator", fields: [creatorId], references: [id], onDelete: Cascade)
   track   Track @relation(fields: [trackId], references: [id], onDelete: Cascade)
@@ -705,7 +777,7 @@ model Follow {
   createdAt  DateTime @default(now())
 
   follower User @relation("Followers", fields: [followerId], references: [id], onDelete: Cascade)
-  creator  User @relation("Following",  fields: [creatorId],  references: [id], onDelete: Cascade)
+  creator  User @relation("Following", fields: [creatorId], references: [id], onDelete: Cascade)
 
   @@id([followerId, creatorId])
   @@index([creatorId])
@@ -713,35 +785,81 @@ model Follow {
 }
 
 model ContentComment {
-  id        String   @id @default(uuid())
-  contentId String
-  userId    String
-  parentId  String?
-  body      String
-  isDeleted Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(uuid())
+  contentId    String
+  userId       String
+  parentId     String?
+  body         String
+  isDeleted    Boolean  @default(false)
+  isHidden     Boolean  @default(false)
+  hiddenReason String? // PROFANITY | REPORTED | MODERATOR
+  reportCount  Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   content Content          @relation(fields: [contentId], references: [id], onDelete: Cascade)
-  user    User             @relation(fields: [userId],    references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   parent  ContentComment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   replies ContentComment[] @relation("CommentReplies")
+  reports CommentReport[]
 
   @@index([contentId, createdAt])
   @@index([userId])
+  @@index([isHidden, createdAt])
   @@map("content_comments")
+}
+
+model CommentReport {
+  id         String   @id @default(uuid())
+  commentId  String
+  reporterId String
+  reason     String // SPAM | HATE | HARASSMENT | OFF_TOPIC | OTHER
+  createdAt  DateTime @default(now())
+
+  comment  ContentComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  reporter User           @relation("CommentReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, reporterId])
+  @@index([commentId])
+  @@map("comment_reports")
 }
 
 model ContentReaction {
   userId    String
   contentId String
-  type      String   // LIKE | FIRE | MIND_BLOWN
+  type      String // LIKE | FIRE | MIND_BLOWN
   createdAt DateTime @default(now())
 
-  user    User    @relation(fields: [userId],    references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
 
   @@id([userId, contentId])
   @@index([contentId])
   @@map("content_reactions")
+}
+
+// ─── Creator Payouts ──────────────────────────────────────────────────────────
+
+model CreatorPayout {
+  id                     String       @id @default(uuid())
+  creatorId              String
+  amount                 Float
+  currency               String       @default("PKR")
+  method                 PayoutMethod
+  status                 PayoutStatus @default(PENDING)
+  stripeTransferId       String?
+  stripeConnectAccountId String?
+  bankRef                String?
+  notes                  String?
+  requestedAt            DateTime     @default(now())
+  paidAt                 DateTime?
+  processedById          String?
+
+  creator     User  @relation("CreatorPayouts", fields: [creatorId], references: [id], onDelete: Cascade)
+  processedBy User? @relation("PayoutProcessor", fields: [processedById], references: [id])
+
+  @@index([creatorId, status])
+  @@index([status, requestedAt])
+  @@index([processedById])
+  @@map("creator_payouts")
 }

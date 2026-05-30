@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
-import { LiveSessionService } from './live-session.service';
-import { CreatorLiveSessionController, LearnerLiveSessionController } from './live-session.controller';
+
 import { NotificationModule } from '../notification/notification.module';
+
+import { CreatorLiveSessionController, LearnerLiveSessionController } from './live-session.controller';
+import { LiveSessionService } from './live-session.service';
 
 @Module({
   imports: [NotificationModule],

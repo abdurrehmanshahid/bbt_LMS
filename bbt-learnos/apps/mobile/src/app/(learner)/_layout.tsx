@@ -1,6 +1,6 @@
+import { Tabs } from 'expo-router';
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Tabs } from 'expo-router';
 
 function TabIcon({ focused, children }: { focused: boolean; children: React.ReactNode }): React.JSX.Element {
   return (
@@ -18,6 +18,8 @@ const ICONS: Record<string, string> = {
   cohort: '◉',
   notifications: '◻',
 };
+
+void ICONS;
 
 export default function LearnerLayout(): React.JSX.Element {
   return (
@@ -48,6 +50,17 @@ export default function LearnerLayout(): React.JSX.Element {
       <Tabs.Screen
         name="module/[moduleId]"
         options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="trending"
+        options={{
+          title: 'Trending',
+          tabBarIcon: ({ focused }) => (
+            <TabIcon focused={focused}>
+              <View style={[styles.dot, focused && styles.dotActive]} />
+            </TabIcon>
+          ),
+        }}
       />
       <Tabs.Screen
         name="portfolio"

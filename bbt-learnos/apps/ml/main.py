@@ -6,11 +6,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from config import settings
-from db import AsyncSessionLocal
-from routers import health, feed, recommend, admin
-from services.trainer import retrain
 import routers.admin as admin_router
+from db import AsyncSessionLocal
+from routers import admin, feed, health, recommend
+from services.trainer import retrain
 
 log = structlog.get_logger()
 

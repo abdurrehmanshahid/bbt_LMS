@@ -14,14 +14,10 @@ For cold-start learners (< cold_start_threshold signals):
 """
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import svds
 
-from config import settings
 from schemas import ContentItem, FeedBucket
 
 

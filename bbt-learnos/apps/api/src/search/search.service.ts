@@ -1,8 +1,10 @@
+import { Client } from '@elastic/elasticsearch';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Client } from '@elastic/elasticsearch';
-import { PrismaService } from '../prisma/prisma.service';
+import { ContentStatus, ContentType, Prisma } from '@prisma/client';
+
 import { ClickHouseService } from '../analytics/clickhouse.service';
+import { PrismaService } from '../prisma/prisma.service';
 
 const INDEX = 'bbt_content';
 
@@ -57,6 +59,7 @@ interface ContentDoc {
 export class SearchService implements OnModuleInit {
   private readonly logger = new Logger(SearchService.name);
   private readonly es: Client;
+  private elasticsearchAvailable = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -68,7 +71,10 @@ export class SearchService implements OnModuleInit {
   }
 
   async onModuleInit(): Promise<void> {
-    await this.ensureIndex().catch((err: unknown) => {
+    await this.ensureIndex().then(() => {
+      this.elasticsearchAvailable = true;
+    }).catch((err: unknown) => {
+      this.elasticsearchAvailable = false;
       this.logger.warn(`Elasticsearch not available at startup: ${String(err)}`);
     });
   }
@@ -112,6 +118,8 @@ export class SearchService implements OnModuleInit {
   }
 
   async indexContent(contentId: string): Promise<void> {
+    if (!this.elasticsearchAvailable) return;
+
     const content = await this.prisma.content.findUnique({
       where: { id: contentId },
       include: {
@@ -148,10 +156,15 @@ export class SearchService implements OnModuleInit {
       indexedAt: new Date().toISOString(),
     };
 
-    await this.es.index({ index: INDEX, id: content.id, document: doc });
+    await this.es.index({ index: INDEX, id: content.id, document: doc }).catch((err: unknown) => {
+      this.elasticsearchAvailable = false;
+      this.logger.warn(`Elasticsearch indexing failed: ${String(err)}`);
+    });
   }
 
   async removeContent(contentId: string): Promise<void> {
+    if (!this.elasticsearchAvailable) return;
+
     await this.es.delete({ index: INDEX, id: contentId }).catch(() => undefined);
   }
 
@@ -166,6 +179,10 @@ export class SearchService implements OnModuleInit {
     } = {},
   ): Promise<SearchResult> {
     const PAGE = 20;
+
+    if (!this.elasticsearchAvailable) {
+      return this.fallbackSearch(q, opts, PAGE);
+    }
 
     const mustFilters: object[] = [{ term: { status: 'APPROVED' } }];
     if (opts.trackId) mustFilters.push({ term: { trackId: opts.trackId } });
@@ -241,7 +258,16 @@ export class SearchService implements OnModuleInit {
       searchParams['sort'] = [{ _score: 'desc' }, { id: 'asc' }];
     }
 
-    const response = await this.es.search<ContentDoc>(searchParams);
+    const response = await this.es.search<ContentDoc>(searchParams).catch((err: unknown) => {
+      this.elasticsearchAvailable = false;
+      this.logger.warn(`Elasticsearch search failed; using database fallback: ${String(err)}`);
+      return null;
+    });
+
+    if (!response) {
+      return this.fallbackSearch(q, opts, PAGE);
+    }
+
     const hits = response.hits.hits;
     const total = typeof response.hits.total === 'number'
       ? response.hits.total
@@ -292,6 +318,112 @@ export class SearchService implements OnModuleInit {
     return { items, total, nextCursor, zeroResults };
   }
 
+  private async fallbackSearch(
+    q: string,
+    opts: {
+      trackId?: string;
+      type?: string;
+      after?: string;
+      userId?: string;
+    },
+    pageSize: number,
+  ): Promise<SearchResult> {
+    const normalizedQuery = q.trim();
+    const where: Prisma.ContentWhereInput = { status: ContentStatus.APPROVED };
+
+    if (opts.trackId) where.trackId = opts.trackId;
+    if (opts.type && this.isContentType(opts.type)) where.type = opts.type;
+    if (opts.after) where.id = { gt: opts.after };
+
+    if (normalizedQuery) {
+      const terms = normalizedQuery.split(/\s+/).filter(Boolean);
+      where.AND = terms.map((term) => ({
+        OR: [
+          { title: { contains: term, mode: 'insensitive' } },
+          { description: { contains: term, mode: 'insensitive' } },
+          { tags: { has: term } },
+        ],
+      }));
+    }
+
+    const [contents, total] = await this.prisma.$transaction([
+      this.prisma.content.findMany({
+        where,
+        include: {
+          track: { select: { title: true } },
+          creator: {
+            select: {
+              name: true,
+              creatorProfile: { select: { tier: true } },
+            },
+          },
+        },
+        orderBy: [{ viewCount: 'desc' }, { createdAt: 'desc' }, { id: 'asc' }],
+        take: pageSize + 1,
+      }),
+      this.prisma.content.count({ where }),
+    ]);
+
+    const zeroResults = contents.length === 0;
+    if (normalizedQuery) {
+      await this.trackSearchGap(normalizedQuery, zeroResults ? 'zero_results' : 'low_engagement', zeroResults, total);
+    }
+
+    this.clickhouse.insertSearchEvent({
+      user_id: opts.userId ?? '',
+      query: normalizedQuery,
+      track_id: opts.trackId ?? '',
+      result_count: total,
+      clicked_item_id: '',
+      zero_results: zeroResults ? 1 : 0,
+    });
+
+    const items = contents.slice(0, pageSize).map((content) => ({
+      id: content.id,
+      title: content.title,
+      description: content.description,
+      type: content.type,
+      track: content.track.title,
+      trackId: content.trackId,
+      thumbnailUrl: content.thumbnailUrl,
+      muxPlaybackId: content.muxPlaybackId,
+      duration: content.duration,
+      creatorName: content.creator.name,
+      creatorTier: content.creator.creatorProfile?.tier ?? 1,
+      completionRate: 0,
+      saveRate: 0,
+      viewCount: content.viewCount,
+      tags: content.tags,
+      score: this.fallbackScore(content.title, content.description, content.tags, normalizedQuery),
+    }) satisfies SearchHit);
+
+    const hasMore = contents.length > pageSize;
+    const lastItem = items[items.length - 1];
+
+    return {
+      items,
+      total,
+      nextCursor: hasMore && lastItem ? lastItem.id : null,
+      zeroResults,
+    };
+  }
+
+  private isContentType(value: string): value is ContentType {
+    return Object.values(ContentType).includes(value as ContentType);
+  }
+
+  private fallbackScore(title: string, description: string, tags: string[], query: string): number {
+    if (!query) return 0;
+
+    const lowerQuery = query.toLowerCase();
+    let score = 0;
+    if (title.toLowerCase().includes(lowerQuery)) score += 3;
+    if (description.toLowerCase().includes(lowerQuery)) score += 1.5;
+    if (tags.some((tag) => tag.toLowerCase().includes(lowerQuery))) score += 2;
+
+    return score;
+  }
+
   private async trackSearchGap(
     query: string,
     type: string,
@@ -308,6 +440,8 @@ export class SearchService implements OnModuleInit {
   }
 
   async syncEngagementStats(contentId: string, completionRate: number, saveRate: number): Promise<void> {
+    if (!this.elasticsearchAvailable) return;
+
     await this.es
       .update({
         index: INDEX,

@@ -1,9 +1,11 @@
 'use client';
+import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+
+import { BrandLogo } from '@/components/BrandLogo';
 import { authApi } from '@/lib/auth';
 
 const schema = z.object({
@@ -35,15 +37,12 @@ export default function ForgotPasswordPage(): React.JSX.Element {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-navy-950 px-4 py-12">
+    <div className="min-h-screen bbt-screen flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <span className="font-display text-2xl text-white">BBT</span>
-            <span className="font-mono text-xs text-orange-500 border border-orange-500 px-1.5 py-0.5 rounded">LearnOS</span>
-          </Link>
-          <h1 className="mt-4 font-display text-3xl text-white">Reset your password</h1>
-          <p className="mt-1 text-sm text-navy-400">
+          <BrandLogo compact priority />
+          <h1 className="mt-4 font-display text-3xl bbt-title">Reset your password</h1>
+          <p className="mt-1 text-sm bbt-copy">
             Remember it?{' '}
             <Link href="/auth/login" className="text-orange-400 hover:text-orange-300 transition-colors">
               Sign in

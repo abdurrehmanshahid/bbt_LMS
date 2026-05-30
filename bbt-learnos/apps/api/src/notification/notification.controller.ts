@@ -10,10 +10,12 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
-import { NotificationService } from './notification.service';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { CurrentUser } from '../common/decorators/current-user.decorator';
+
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+
+import { NotificationService } from './notification.service';
 import type { NotificationCategory } from './notification.types';
 
 @Controller('learner/notifications')

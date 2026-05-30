@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
+
+import { ConceptEnrollCTA } from './ConceptEnrollCTA';
 
 interface ConceptData {
   id: string;
@@ -119,12 +121,7 @@ export default async function ConceptPage({ params }: Props): Promise<React.JSX.
               <p className="mt-2 text-sm opacity-80 font-body">
                 Enroll free to access the first 2 modules including this concept.
               </p>
-              <Link
-                href={`/auth/signup?track=${concept.track.slug}`}
-                className="mt-4 block rounded-lg bg-orange-500 py-2.5 text-center text-sm font-semibold text-white hover:bg-orange-600 transition-colors"
-              >
-                Start Free →
-              </Link>
+              <ConceptEnrollCTA trackSlug={concept.track.slug} />
             </div>
 
             {/* Related concepts */}

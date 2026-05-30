@@ -2,7 +2,9 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { OnEvent } from '@nestjs/event-emitter';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { CohortStatus } from '@prisma/client';
+
 import { PrismaService } from '../prisma/prisma.service';
+
 import { CohortGateway } from './cohort.gateway';
 
 const MAX_COHORT_SIZE = 20;
